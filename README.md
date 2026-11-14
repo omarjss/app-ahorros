@@ -5,6 +5,8 @@ App web para llevar el control de mis ahorros en **efectivo**, **Binance** y **b
 - Dólar y euro oficial del BCV (fuente: [ve.dolarapi.com](https://ve.dolarapi.com))
 - USDT en Binance P2P, promedio de compra y venta (fuente: [CriptoYa](https://criptoya.com))
 
+También tiene metas de ahorro, movimientos entre bolsillos (por ejemplo de Banco a Binance) y guarda la tasa del día de cada movimiento para ver cuánto pierden o ganan los bolívares por la devaluación.
+
 Las tasas se actualizan solas cada 10 minutos mientras la app está abierta. Los montos los anoto yo; la app no se conecta a ningún banco ni a Binance.
 
 **Abrir la app:** https://omarjss.github.io/app-ahorros/

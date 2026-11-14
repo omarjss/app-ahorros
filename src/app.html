@@ -129,6 +129,16 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .day:first-child{border-top:0;padding-top:0}
 .day span:first-child{color:var(--ink)}
 .day + .mov{border-top:0}
+.goal{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);margin-top:10px;padding-top:12px;width:100%}
+.goal:focus-visible{outline:2px solid var(--bank);outline-offset:4px;border-radius:6px}
+.goal-top{display:flex;justify-content:space-between;gap:8px;font-weight:600;font-size:14px}
+.gbar{height:6px;border-radius:999px;background:var(--chip);overflow:hidden}
+.gbar span{display:block;height:100%;background:var(--ink);border-radius:999px}
+.addgoal{align-self:flex-start;margin-top:6px}
+.mvrow{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:12px;background:var(--bg)}
+.mvrow .cats button{background:var(--surface)}
+.amt .to{display:block;color:var(--muted);font-weight:500;font-size:13px}
+.preview:empty{display:none}
 .ghost{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-weight:600}
 
 /* hojas */
@@ -190,6 +200,7 @@ textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:
       <div class="big num" id="total">$0,00</div>
       <div class="subs num" id="totalSub"></div>
       <div class="bar" id="mix" aria-hidden="true"></div>
+      <div id="goal"></div>
     </section>
 
     <section class="pockets" id="pockets" aria-label="Por tipo de ahorro"></section>
@@ -334,20 +345,42 @@ function renderRates(){
 }
 
 /* ---------- cálculos ---------- */
-function rateVES(){ const T=state.tasas; return state.base==="usdt" ? (T.usdt||T.usd) : T.usd; }
-function amtUSD(monto, moneda){
-  const T=state.tasas;
+function rateVES(T){ T=T||state.tasas; return state.base==="usdt" ? (T.usdt||T.usd) : T.usd; }
+function amtUSD(monto, moneda, T){
+  T=T||state.tasas;
   if(moneda==="USD"||moneda==="USDT") return monto;
   if(moneda==="EUR") return T.usd ? monto*T.eur/T.usd : 0;
-  const r=rateVES(); return r ? monto/r : 0;
+  const r=rateVES(T); return r ? monto/r : 0;
 }
-const signed = m => m.monto*(m.tipo==="retiro"?-1:1);
-const toUSD = m => amtUSD(signed(m), m.moneda);
+/* Bs que vale una unidad de cada moneda; para sugerir cuánto llega al mover dinero */
+function convert(n, from, to){
+  if(from===to) return n;
+  const T=state.tasas, usdLike=c=>c==="USD"||c==="USDT";
+  if(usdLike(from)&&usdLike(to)) return n;
+  const bs={VES:1, USD:T.usd, EUR:T.eur, USDT:T.usdt||T.usd};
+  return bs[to] ? n*bs[from]/bs[to] : 0;
+}
+const isMove = m => m.tipo==="mover";
+function legs(m){
+  if(isMove(m)) return [{cat:m.cat, cur:m.moneda, amt:-m.monto},{cat:m.to, cur:m.moneda2, amt:m.monto2}];
+  return [{cat:m.cat, cur:m.moneda, amt:m.monto*(m.tipo==="retiro"?-1:1)}];
+}
+const signed = m => m.monto*(m.tipo==="ahorro"?1:-1);
+const toUSD = m => legs(m).reduce((s,l)=>s+amtUSD(l.amt,l.cur),0);
+/* Valor en $ el día del movimiento (con la tasa guardada ese día) */
+const thenUSD = m => m.tasa ? legs(m).reduce((s,l)=>s+amtUSD(l.amt,l.cur,m.tasa),0) : toUSD(m);
+const hasFx = m => !!m.tasa && legs(m).some(l=>l.cur==="VES"||l.cur==="EUR");
+/* Cuánto han ganado o perdido en $ tus Bs y € desde que los anotaste */
+function fxEffect(){
+  let s=0, any=false;
+  state.movs.forEach(m=>{ if(!m.tasa) return; legs(m).forEach(l=>{ if(l.cur==="VES"||l.cur==="EUR"){ any=true; s+=amtUSD(l.amt,l.cur)-amtUSD(l.amt,l.cur,m.tasa); } }); });
+  return any ? s : null;
+}
 function months(){ const set = new Set(state.movs.map(m=>ym(m.fecha))); set.add(ym(today())); return [...set].sort(); }
 function monthlyClose(){
   const run={efectivo:0,binance:0,banco:0}, out=[];
   const sorted=[...state.movs].sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  months().forEach(k=>{ let net=0; sorted.forEach(m=>{ if(ym(m.fecha)===k){ const u=toUSD(m); run[m.cat]+=u; net+=u; } }); out.push({k, v:{...run}, net}); });
+  months().forEach(k=>{ let net=0; sorted.forEach(m=>{ if(ym(m.fecha)===k){ legs(m).forEach(l=>run[l.cat]+=amtUSD(l.amt,l.cur)); if(!isMove(m)) net+=toUSD(m); } }); out.push({k, v:{...run}, net}); });
   return out;
 }
 
@@ -356,14 +389,17 @@ function render(){
   renderRates();
   document.querySelectorAll("[data-base]").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.base===state.base)));
   const byCat = {efectivo:0,binance:0,banco:0}, nat = {efectivo:{},binance:{},banco:{}};
-  state.movs.forEach(m=>{ byCat[m.cat]+=toUSD(m); nat[m.cat][m.moneda]=(nat[m.cat][m.moneda]||0)+signed(m); });
+  state.movs.forEach(m=>legs(m).forEach(l=>{ byCat[l.cat]+=amtUSD(l.amt,l.cur); nat[l.cat][l.cur]=(nat[l.cat][l.cur]||0)+l.amt; }));
+  const fx=fxEffect();
   const total = byCat.efectivo+byCat.binance+byCat.banco, T=state.tasas;
   $("#total").textContent = money(total,"USD");
   $("#totalSub").innerHTML = [
     T.usd ? `<span>≈ Bs ${fmt(total*T.usd)} a BCV</span>` : "",
     T.eur ? `<span>≈ €${fmt(total*T.usd/T.eur)}</span>` : "",
-    T.usd&&T.usdt ? `<span>Brecha BCV y Binance: ${fmt((T.usdt/T.usd-1)*100,1)}%</span>` : ""
+    T.usd&&T.usdt ? `<span>Brecha BCV y Binance: ${fmt((T.usdt/T.usd-1)*100,1)}%</span>` : "",
+    fx!==null && Math.abs(fx)>=0.01 ? `<span>Tus Bs y € ${fx<0?"perdieron":"ganaron"} <b class="${fx<0?"neg":"pos"}">${money(Math.abs(fx),"USD")}</b> por la tasa</span>` : ""
   ].join("");
+  renderGoal(total);
   const pos = Math.max(total,0.0001);
   $("#mix").innerHTML = Object.keys(CATS).map(k=> byCat[k]>0 ? `<span style="width:${byCat[k]/pos*100}%;background:${CATS[k].c}"></span>` : "").join("");
   $("#pockets").innerHTML = Object.entries(CATS).map(([k,c])=>{
@@ -371,6 +407,43 @@ function render(){
     return `<div class="card pocket" style="--c:${c.c}"><span class="name"><i></i>${c.name}</span><span class="usd num">${money(byCat[k],"USD")}</span><span class="nat num">${n}</span><span class="pct num">${total>0?fmt(byCat[k]/total*100,0)+"%":"—"}</span></div>`;
   }).join("");
   renderChart(); renderMonth();
+}
+function renderGoal(total){
+  const g=state.meta;
+  if(!g||!(g.monto>0)){ $("#goal").innerHTML=`<button class="linkbtn addgoal" type="button" id="goalBtn">+ Poner una meta de ahorro</button>`; return; }
+  const p=Math.min(1,Math.max(0,total/g.monto)), falta=Math.max(0,g.monto-total);
+  let ritmo="";
+  if(g.fecha && falta>0){
+    const now=new Date(), end=new Date(g.fecha+"T12:00");
+    const ml=(end.getFullYear()-now.getFullYear())*12+end.getMonth()-now.getMonth()+1;
+    ritmo = ml>=1 ? ` · ${money(falta/ml,"USD")} al mes hasta ${monthLong(ym(g.fecha)).toLowerCase()}` : " · la fecha de la meta ya pasó";
+  }
+  $("#goal").innerHTML=`<button class="goal" type="button" id="goalBtn" aria-label="Editar meta">
+    <span class="goal-top"><span>${esc(g.nombre)||"Meta"} · ${money(g.monto,"USD")}</span><span class="num">${fmt(p*100,0)}%</span></span>
+    <span class="gbar"><span style="width:${p*100}%"></span></span>
+    <span class="small muted num">${falta>0?`Te faltan ${money(falta,"USD")}${ritmo}`:"¡Meta cumplida! Toca para poner una nueva."}</span></button>`;
+}
+function openGoal(){
+  const g=state.meta||{};
+  sheet(`<form class="sheet" id="gf" novalidate>${head("Meta de ahorro")}
+    <span class="small muted">Se compara con tu total ahorrado en dólares.</span>
+    <div class="field"><label for="g-nombre">Para qué (opcional)</label><input id="g-nombre" maxlength="40" placeholder="Fondo de emergencia, viaje…" value="${esc(g.nombre)}"></div>
+    <div class="row2">
+      <div class="field"><label for="g-monto">Monto en $</label><input id="g-monto" inputmode="decimal" placeholder="2.000" value="${g.monto?fmt(g.monto):""}"></div>
+      <div class="field"><label for="g-fecha">Para cuándo (opcional)</label><input id="g-fecha" type="date" value="${g.fecha||""}" min="${today()}"></div>
+    </div>
+    <div class="err" id="g-err" hidden></div>
+    <button class="primary" type="submit">Guardar meta</button>
+    ${g.monto?`<button class="ghost" type="button" id="g-del">Quitar meta</button>`:""}
+  </form>`);
+  const gd=$("#g-del"); if(gd) gd.onclick=()=>{ state.meta=null; save(); closeSheet(); render(); toast("Meta quitada"); };
+  $("#gf").addEventListener("submit",e=>{
+    e.preventDefault();
+    const n=parseNum($("#g-monto").value);
+    if(!(n>0)){ const el=$("#g-err"); el.textContent="Escribe el monto de la meta en dólares, por ejemplo 2.000."; el.hidden=false; return; }
+    state.meta={monto:n, fecha:$("#g-fecha").value||"", nombre:$("#g-nombre").value.trim()};
+    save(); closeSheet(); render(); toast("Meta guardada");
+  });
 }
 function renderChart(){
   const svg=$("#chart"); const all=monthlyClose(); const cols=all.slice(-12);
@@ -391,7 +464,7 @@ function renderMonth(){
   const ms = months().reverse();
   $("#months").innerHTML = ms.map(k=>`<button type="button" data-m="${k}" aria-pressed="${k===selMonth}">${monthLong(k)}</button>`).join("");
   const list = state.movs.filter(m=>ym(m.fecha)===selMonth).sort((a,b)=>b.fecha.localeCompare(a.fecha)||(b.t||0)-(a.t||0));
-  let ah=0, re=0; list.forEach(m=>{ const u=Math.abs(toUSD(m)); if(m.tipo==="retiro") re+=u; else ah+=u; });
+  let ah=0, re=0; list.forEach(m=>{ if(isMove(m)) return; const u=Math.abs(toUSD(m)); if(m.tipo==="retiro") re+=u; else ah+=u; });
   $("#mstats").innerHTML = `<div class="mstat"><div class="k">Ahorré</div><div class="v num pos">${money(ah,"USD")}</div></div>
     <div class="mstat"><div class="k">Retiré</div><div class="v num neg">${money(re,"USD")}</div></div>
     <div class="mstat"><div class="k">Neto</div><div class="v num ${ah-re<0?"neg":""}">${money(ah-re,"USD")}</div></div>`;
@@ -400,16 +473,21 @@ function renderMonth(){
     return;
   }
   if(!list.length){ $("#list").innerHTML = `<div class="empty">Sin movimientos en ${monthLong(selMonth)}.</div>`; return; }
-  const dayNet={}; list.forEach(m=>dayNet[m.fecha]=(dayNet[m.fecha]||0)+toUSD(m));
+  const dayNet={}; list.forEach(m=>dayNet[m.fecha]=(dayNet[m.fecha]||0)+(isMove(m)?0:toUSD(m)));
   let lastDay="";
   $("#list").innerHTML = list.map(m=>{
     let hdr="";
     if(m.fecha!==lastDay){ lastDay=m.fecha; const n=dayNet[m.fecha];
       hdr=`<div class="day"><span>${cap(new Date(m.fecha+"T12:00").toLocaleDateString("es-VE",{weekday:"long",day:"numeric",month:"long"}))}</span><span class="num ${n<0?"neg":"pos"}">${n<0?"":"+"}${money(n,"USD")} ese día</span></div>`; }
-    const c=CATS[m.cat]; const del = pendingDelete===m.id;
-    return hdr+`<div class="mov" style="--c:${c.c}"><span class="sw"></span>
-      <div class="t"><b>${esc(m.nota)||(m.tipo==="retiro"?"Retiro":"Ahorro")}</b><span class="small muted">${c.name}${m.demo?" · ejemplo":""}</span></div>
-      <div><div class="amt num ${m.tipo==="retiro"?"neg":""}">${m.tipo==="retiro"?"":"+"}${money(signed(m),m.moneda)}</div>
+    const c=CATS[m.cat]; const del = pendingDelete===m.id, mv=isMove(m);
+    const route = mv ? `${c.name} → ${CATS[m.to].name}` : c.name;
+    let val="";
+    if(!mv && hasFx(m)){ const a=thenUSD(m), b=toUSD(m); if(Math.abs(a)>=0.01 && Math.abs(b/a-1)>=0.005) val=` · valía ${money(Math.abs(a),"USD")}, hoy ${money(Math.abs(b),"USD")}`; }
+    const amount = mv ? `${money(-m.monto,m.moneda)} <span class="to">→ ${money(m.monto2,m.moneda2)}</span>`
+                      : `${m.tipo==="retiro"?"":"+"}${money(signed(m),m.moneda)}`;
+    return hdr+`<div class="mov" style="--c:${mv?"var(--muted)":c.c}"><span class="sw"></span>
+      <div class="t"><b>${esc(m.nota)||(mv?"Movido":m.tipo==="retiro"?"Retiro":"Ahorro")}</b><span class="small muted num">${route}${val}${m.demo?" · ejemplo":""}</span></div>
+      <div><div class="amt num ${m.tipo==="retiro"?"neg":""}">${amount}</div>
       <div class="act">${del?`<button type="button" data-cancel>Cancelar</button><button type="button" class="danger" data-del="${m.id}">Sí, borrar</button>`
         :`<button type="button" data-edit="${m.id}">Editar</button><button type="button" data-ask="${m.id}">Borrar</button>`}</div></div></div>`;
   }).join("");
@@ -422,17 +500,28 @@ const head = t => `<div class="sheet-h"><h2>${t}</h2><button type="button" class
 
 function openForm(m){
   const ed = m || {cat:"efectivo", tipo:"ahorro", moneda:"USD", fecha:today(), monto:"", nota:""};
-  let cat=ed.cat, tipo=ed.tipo;
+  let cat=ed.cat, tipo=ed.tipo, to=ed.to||(cat==="banco"?"binance":"banco"), m2edited=!!m;
   sheet(`<form class="sheet" id="f" novalidate>${head(m?"Editar movimiento":"Nuevo movimiento")}
-    <div class="cats" role="group" aria-label="Dónde está el dinero">${Object.entries(CATS).map(([k,c])=>`<button type="button" data-cat="${k}" style="--c:${c.c}" aria-pressed="${k===cat}">${c.name}</button>`).join("")}</div>
     <div class="seg" role="group" aria-label="Tipo" style="align-self:flex-start">
-      <button type="button" data-tipo="ahorro" aria-pressed="${tipo!=="retiro"}">Entra (ahorro)</button>
-      <button type="button" data-tipo="retiro" aria-pressed="${tipo==="retiro"}">Sale (retiro)</button></div>
+      <button type="button" data-tipo="ahorro" aria-pressed="${tipo==="ahorro"}">Entra</button>
+      <button type="button" data-tipo="retiro" aria-pressed="${tipo==="retiro"}">Sale</button>
+      <button type="button" data-tipo="mover" aria-pressed="${tipo==="mover"}">Mover</button></div>
+    <div class="field"><label id="f-donde">${tipo==="mover"?"Desde":"Dónde"}</label>
+    <div class="cats" role="group" aria-labelledby="f-donde">${Object.entries(CATS).map(([k,c])=>`<button type="button" data-cat="${k}" style="--c:${c.c}" aria-pressed="${k===cat}">${c.name}</button>`).join("")}</div></div>
     <div class="row2">
       <div class="field"><label for="f-monto">Monto</label><input id="f-monto" inputmode="decimal" placeholder="0,00" value="${m?fmt(m.monto):""}" autocomplete="off"></div>
       <div class="field"><label for="f-moneda">Moneda</label><select id="f-moneda">${Object.entries(CUR).map(([k,l])=>`<option value="${k}" ${k===ed.moneda?"selected":""}>${l}</option>`).join("")}</select></div>
     </div>
     <div class="preview num" id="f-prev"></div>
+    <div class="mvrow" id="f-mv" ${tipo==="mover"?"":"hidden"}>
+      <div class="field"><label id="f-hacia">Hacia</label>
+      <div class="cats" role="group" aria-labelledby="f-hacia">${Object.entries(CATS).map(([k,c])=>`<button type="button" data-to="${k}" style="--c:${c.c}" aria-pressed="${k===to}">${c.name}</button>`).join("")}</div></div>
+      <div class="row2">
+        <div class="field"><label for="f-monto2">Llega</label><input id="f-monto2" inputmode="decimal" placeholder="0,00" value="${m&&m.monto2?fmt(m.monto2):""}" autocomplete="off"></div>
+        <div class="field"><label for="f-moneda2">En</label><select id="f-moneda2">${Object.entries(CUR).map(([k,l])=>`<option value="${k}" ${k===(ed.moneda2||CATS[to].def)?"selected":""}>${l}</option>`).join("")}</select></div>
+      </div>
+      <span class="small muted">Cambia «Llega» si recibiste otro monto, por ejemplo por la comisión o la tasa de tu cambio.</span>
+    </div>
     <div class="row2">
       <div class="field"><label for="f-fecha">Fecha</label><input id="f-fecha" type="date" value="${ed.fecha}" max="${today()}"></div>
       <div class="field"><label for="f-nota">Nota (opcional)</label><input id="f-nota" maxlength="60" placeholder="Quincena, venta…" value="${esc(ed.nota)}"></div>
@@ -441,12 +530,21 @@ function openForm(m){
     <button class="primary" type="submit">${m?"Guardar cambios":"Agregar"}</button>
   </form>`);
   const f=$("#f");
-  const prev=()=>{ const n=parseNum($("#f-monto").value), cur=$("#f-moneda").value; $("#f-prev").textContent = n>0 && cur!=="USD" ? "≈ "+money(amtUSD(n,cur),"USD")+" con la tasa de hoy" : ""; };
-  f.addEventListener("input",prev); prev();
+  const prev=()=>{
+    const n=parseNum($("#f-monto").value), cur=$("#f-moneda").value;
+    $("#f-prev").textContent = n>0 && cur!=="USD" && tipo!=="mover" ? "≈ "+money(amtUSD(n,cur),"USD")+" con la tasa de hoy" : "";
+    if(tipo==="mover" && !m2edited){ const v=n>0?convert(n,cur,$("#f-moneda2").value):0; $("#f-monto2").value = v>0 ? fmt(v) : ""; }
+  };
+  f.addEventListener("input",e=>{ if(e.target.id==="f-monto2") m2edited=true; if(e.target.id==="f-moneda2") m2edited=false; prev(); }); prev();
+  f.addEventListener("change",e=>{ if(e.target.id==="f-moneda2"||e.target.id==="f-moneda"){ m2edited=false; prev(); } });
   f.addEventListener("click",e=>{
     const b=e.target.closest("button"); if(!b) return;
-    if(b.dataset.cat){ cat=b.dataset.cat; f.querySelectorAll("[data-cat]").forEach(x=>x.setAttribute("aria-pressed",String(x===b))); if(!m){ $("#f-moneda").value=CATS[cat].def; prev(); } }
-    if(b.dataset.tipo){ tipo=b.dataset.tipo; f.querySelectorAll("[data-tipo]").forEach(x=>x.setAttribute("aria-pressed",String(x===b))); }
+    if(b.dataset.cat){ cat=b.dataset.cat; f.querySelectorAll("[data-cat]").forEach(x=>x.setAttribute("aria-pressed",String(x===b))); if(!m){ $("#f-moneda").value=CATS[cat].def; m2edited=false; }
+      if(to===cat){ to=Object.keys(CATS).find(k=>k!==cat&&k!=="efectivo")||Object.keys(CATS).find(k=>k!==cat); f.querySelectorAll("[data-to]").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.to===to))); $("#f-moneda2").value=CATS[to].def; m2edited=false; }
+      prev(); }
+    if(b.dataset.to){ to=b.dataset.to; f.querySelectorAll("[data-to]").forEach(x=>x.setAttribute("aria-pressed",String(x===b))); $("#f-moneda2").value=CATS[to].def; m2edited=false; prev(); }
+    if(b.dataset.tipo){ tipo=b.dataset.tipo; f.querySelectorAll("[data-tipo]").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+      $("#f-mv").hidden = tipo!=="mover"; $("#f-donde").textContent = tipo==="mover"?"Desde":"Dónde"; prev(); }
   });
   f.addEventListener("submit",e=>{
     e.preventDefault();
@@ -455,6 +553,15 @@ function openForm(m){
     if(!(monto>0)) return err("Escribe un monto mayor que cero, por ejemplo 25 o 1.250,50.");
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return err("Elige una fecha.");
     const rec = {id:m?m.id:uid(), t:m?m.t:Date.now(), cat, tipo, moneda:$("#f-moneda").value, monto, fecha, nota:$("#f-nota").value.trim()};
+    if(tipo==="mover"){
+      const monto2=parseNum($("#f-monto2").value);
+      if(to===cat) return err("Elige un bolsillo distinto en «Hacia».");
+      if(!(monto2>0)) return err("Escribe cuánto llegó al otro bolsillo.");
+      Object.assign(rec,{to, monto2, moneda2:$("#f-moneda2").value});
+    }
+    /* La tasa del día se guarda solo si el movimiento es de hoy; para fechas pasadas no la conocemos */
+    if(m && m.tasa && m.fecha===fecha) rec.tasa=m.tasa;
+    else if(fecha===today()) rec.tasa={usd:state.tasas.usd, eur:state.tasas.eur, usdt:state.tasas.usdt};
     if(m) state.movs = state.movs.map(x=>x.id===m.id?rec:x); else state.movs.push(rec);
     selMonth = ym(fecha); save(); closeSheet(); render(); toast(m?"Cambios guardados":"Movimiento agregado");
   });
@@ -464,7 +571,7 @@ function openForm(m){
 function openBackup(){
   sheet(`<div class="sheet">${head("Respaldo")}
     <span class="small muted">Copia este texto y guárdalo en tus notas o en un chat contigo mismo. Para pasar tus datos a otro equipo, pégalo allá en Respaldo y toca Restaurar.</span>
-    <textarea id="bk" spellcheck="false" aria-label="Texto del respaldo">${esc(JSON.stringify({movs:state.movs}))}</textarea>
+    <textarea id="bk" spellcheck="false" aria-label="Texto del respaldo">${esc(JSON.stringify({movs:state.movs, meta:state.meta||null}))}</textarea>
     <div class="err" id="bk-err" hidden></div>
     <div class="row2"><button class="ghost" type="button" id="bk-copy">Copiar</button><button class="primary" type="button" id="bk-load">Restaurar</button></div>
     ${state.movs.some(m=>m.demo)?`<button class="ghost" type="button" id="bk-demo">Borrar datos de ejemplo</button>`:""}
@@ -473,7 +580,8 @@ function openBackup(){
   $("#bk-copy").onclick = ()=>{ const ta=$("#bk"); (navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast("Respaldo copiado")).catch(()=>{ ta.select(); toast("Texto seleccionado; cópialo"); }); };
   $("#bk-load").onclick = ()=>{
     try{ const d=JSON.parse($("#bk").value); if(!Array.isArray(d.movs)) throw 0;
-      state.movs=d.movs.filter(m=>m&&CATS[m.cat]&&CUR[m.moneda]&&m.monto>0&&m.fecha); save(); closeSheet(); render(); toast("Respaldo restaurado"); }
+      state.movs=d.movs.filter(m=>m&&CATS[m.cat]&&CUR[m.moneda]&&m.monto>0&&m.fecha&&(m.tipo!=="mover"||(CATS[m.to]&&CUR[m.moneda2]&&m.monto2>0)));
+      if(d.meta!==undefined) state.meta=d.meta; save(); closeSheet(); render(); toast("Respaldo restaurado"); }
     catch(e){ const el=$("#bk-err"); el.textContent="Ese texto no es un respaldo válido. Pega el texto completo que copiaste."; el.hidden=false; }
   };
 }
@@ -486,7 +594,9 @@ function openGuide(){
       <li><b>Control por día:</b> dentro de cada mes los movimientos salen agrupados por fecha, con lo que entró o salió ese día. En el Excel también hay una hoja «Resumen por día».</li>
       <li><b>Cuando saques dinero,</b> elige «Sale (retiro)». Se resta del bolsillo y del total.</li>
       <li><b>¿Algo de un mes pasado?</b> Cambia la fecha en el formulario y queda en ese mes.</li>
-      <li><b>Pasar de un lugar a otro</b> (por ejemplo, de Banco a Binance): anota un retiro en Banco y un ahorro en Binance.</li>
+      <li><b>Pasar dinero de un lugar a otro</b> (por ejemplo, de Banco a Binance): elige «Mover», indica desde dónde, hacia dónde y cuánto llegó. No cuenta como ahorro ni como retiro.</li>
+      <li><b>Meta:</b> toca «Poner una meta de ahorro» debajo del total. Si le pones fecha, te dice cuánto ahorrar por mes.</li>
+      <li><b>Tasa de cada movimiento:</b> lo que anotas en Bs o € con fecha de hoy guarda la tasa del día. Así ves cuánto valía ese día y cuánto vale hoy, y debajo del total, cuánto han perdido o ganado tus Bs y € por la tasa.</li>
       <li><b>Bs a BCV o Bs a Binance</b> cambia con qué tasa se pasan a dólares tus bolívares. Los dólares y los USDT no cambian.</li>
       <li><b>Excel</b> descarga todos tus movimientos, el resumen por mes, el resumen por día y las tasas.</li>
       <li><b>Respaldo:</b> copia el texto de vez en cuando. Si cambias de teléfono, lo pegas y recuperas todo.</li>
@@ -508,21 +618,26 @@ async function exportExcel(){
   toast("Preparando Excel…");
   let X; try{ X=await loadXLSX(); }catch(e){ toast("No se pudo preparar el Excel. Revisa tu conexión e intenta de nuevo."); return; }
   const r2 = n => Math.round(n*100)/100;
+  const cn = c => c==="VES"?"Bs":c;
   const movs=[...state.movs].sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(m=>({
-    "Fecha": m.fecha, "Mes": monthLong(ym(m.fecha)), "Dónde": CATS[m.cat].name, "Tipo": m.tipo==="retiro"?"Retiro":"Ahorro",
-    "Moneda": m.moneda==="VES"?"Bs":m.moneda, "Monto": r2(signed(m)), "Equivalente en $ (tasa de hoy)": r2(toUSD(m)), "Nota": m.nota||""
+    "Fecha": m.fecha, "Mes": monthLong(ym(m.fecha)), "Dónde": isMove(m)?`${CATS[m.cat].name} → ${CATS[m.to].name}`:CATS[m.cat].name,
+    "Tipo": isMove(m)?"Mover":m.tipo==="retiro"?"Retiro":"Ahorro",
+    "Moneda": cn(m.moneda), "Monto": r2(signed(m)), "Llega": isMove(m)?`${fmt(m.monto2)} ${cn(m.moneda2)}`:"",
+    "Tasa $ BCV ese día": m.tasa?m.tasa.usd:"", "Tasa Binance ese día": m.tasa?m.tasa.usdt:"",
+    "En $ ese día": hasFx(m)?r2(thenUSD(m)):"", "En $ hoy": r2(toUSD(m)), "Nota": m.nota||""
   }));
   const res=monthlyClose().map(c=>({ "Mes": monthLong(c.k), "Ahorro neto del mes $": r2(c.net),
     "Efectivo $": r2(c.v.efectivo), "Binance $": r2(c.v.binance), "Banco $": r2(c.v.banco), "Total al cierre $": r2(c.v.efectivo+c.v.binance+c.v.banco) }));
-  const dias={}; state.movs.forEach(m=>{ const k=m.fecha; dias[k]=dias[k]||{efectivo:0,binance:0,banco:0}; dias[k][m.cat]+=toUSD(m); });
+  const dias={}; state.movs.forEach(m=>{ const k=m.fecha; dias[k]=dias[k]||{efectivo:0,binance:0,banco:0}; legs(m).forEach(l=>dias[k][l.cat]+=amtUSD(l.amt,l.cur)); });
   let acc=0; const dia=Object.keys(dias).sort().map(k=>{ const v=dias[k], n=v.efectivo+v.binance+v.banco; acc+=n;
     return {"Fecha":k,"Día":cap(new Date(k+"T12:00").toLocaleDateString("es-VE",{weekday:"long"})),"Efectivo $":r2(v.efectivo),"Binance $":r2(v.binance),"Banco $":r2(v.banco),"Neto del día $":r2(n),"Total acumulado $":r2(acc)}; });
   const T=state.tasas;
   const tas=[{"Tasa":"Dólar BCV (Bs por $)","Valor":T.usd},{"Tasa":"Euro BCV (Bs por €)","Valor":T.eur},{"Tasa":"USDT Binance P2P (Bs por USDT)","Valor":T.usdt},
     {"Tasa":"Bolívares convertidos con","Valor":state.base==="usdt"?"Binance":"BCV"},{"Tasa":"Fecha de las tasas","Valor":new Date(T.fecha).toLocaleString("es-VE")}];
+  if(state.meta&&state.meta.monto) tas.push({"Tasa":"Meta de ahorro ($)","Valor":state.meta.monto},{"Tasa":"Fecha de la meta","Valor":state.meta.fecha||"Sin fecha"});
   const wb=X.utils.book_new();
   const add=(rows,name,widths)=>{ const ws=X.utils.json_to_sheet(rows); ws["!cols"]=widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb,ws,name); };
-  add(movs,"Movimientos",[12,18,10,9,8,14,16,28]);
+  add(movs,"Movimientos",[12,18,18,9,8,14,16,14,14,12,12,28]);
   add(res,"Resumen por mes",[18,18,12,12,12,16]);
   add(dia,"Resumen por día",[12,12,12,12,12,14,16]);
   add(tas,"Tasas",[32,22]);
@@ -560,6 +675,7 @@ document.addEventListener("click",e=>{
   else if(id==="backup") openBackup();
   else if(id==="guide") openGuide();
   else if(id==="excel") exportExcel();
+  else if(id==="goalBtn") openGoal();
   else if(id==="install"&&installEvt){ installEvt.prompt(); installEvt.userChoice.finally(()=>{ installEvt=null; $("#install").hidden=true; }); }
   else if(id==="refresh") fetchRates(true);
   else if(id==="editRates"){
