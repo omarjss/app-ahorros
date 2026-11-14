@@ -51,11 +51,15 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
   .app{grid-template-columns:minmax(0,5fr) minmax(0,6fr);align-items:start;gap:24px}
   .top{grid-column:1 / -1}
   .col.right{position:sticky;top:calc(env(safe-area-inset-top,0px) + 14px)}
-  body{padding-bottom:40px}
+  body{padding-bottom:16px}
   .actionbar{display:none}
 }
-@media (min-width:1400px){ .app{max-width:1180px;zoom:1.12} }
-@media (min-width:1800px){ .app{max-width:1240px;zoom:1.28} }
+/* PC: tamaño proporcional a la pantalla (lo calcula fitScreen) y la lista se mueve dentro de su tarjeta */
+@media (min-width:900px) and (min-height:600px){
+  .col.right .panel{max-height:var(--panelh,none)}
+  .col.right .panel > :not(.list){flex-shrink:0}
+  .col.right .list{overflow-y:auto;min-height:120px;flex:1 1 auto;margin-right:-8px;padding-right:8px;scrollbar-width:thin}
+}
 .tbtn.icon{padding:7px 9px}
 .tbtn.icon svg{width:16px;height:16px;display:block}
 
@@ -1177,7 +1181,19 @@ document.addEventListener("click",e=>{
   else if(d.del){ state.movs=state.movs.filter(x=>x.id!==d.del); pendingDelete=null; save(); render(); toast("Movimiento borrado"); }
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeSheet(); });
-window.addEventListener("resize",()=>{ clearTimeout(window.__rz); window.__rz=setTimeout(renderChart,150); });
+function fitScreen(){
+  const app=document.querySelector(".app"), panel=document.querySelector(".col.right .panel"); if(!app||!panel) return;
+  const W=innerWidth, H=innerHeight;
+  const z = W<1200 ? 1 : Math.max(1, Math.min(2, W/1440, H/800));
+  app.style.zoom = z===1 ? "" : String(Math.round(z*100)/100);
+  if(W>=900 && H>=600){
+    panel.style.removeProperty("--panelh"); app.style.setProperty("--panelh","none");
+    const r = panel.getBoundingClientRect(), zr = r.height/panel.offsetHeight || 1;
+    const top = r.top + scrollY;
+    app.style.setProperty("--panelh", Math.max(360, (H - top - 16) / zr) + "px");
+  } else app.style.removeProperty("--panelh");
+}
+window.addEventListener("resize",()=>{ clearTimeout(window.__rz); window.__rz=setTimeout(()=>{ fitScreen(); renderChart(); },150); });
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden && sbUser) acctSync(); });
 window.addEventListener("online",()=>{ if(sbUser) acctSync(); });
 setInterval(()=>{ if(!document.hidden && sbUser) acctSync(); }, 60e3);
@@ -1191,6 +1207,7 @@ fetchRates();
 connectCloud();
 initAccount();
 applyTheme();
+fitScreen(); renderChart();
 })();
 </script>
 <script>if("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});</script>
