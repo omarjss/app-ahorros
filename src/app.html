@@ -49,6 +49,8 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 @media (max-width:420px){.top h1{font-size:21px}.tbtn{padding:7px 10px}.tools{gap:5px}}
 .tools{display:flex;gap:6px;flex-wrap:wrap}
 .tbtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center}
+.tbtn .dot{width:7px;height:7px;border-radius:50%;background:var(--pos,#1f8a5b)}
+.acct-msg{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px}
 .tbtn.solid{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .tbtn.desk{display:none}
 @media (min-width:900px){.tbtn.desk{display:inline-flex}}
@@ -192,6 +194,7 @@ textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:
       <button class="tbtn" id="install" type="button" hidden>Instalar app</button>
       <button class="tbtn" id="excel" type="button">Excel</button>
       <button class="tbtn" id="guide" type="button">Guía</button>
+      <button class="tbtn" id="account" type="button" hidden><span class="dot" id="acctDot" hidden></span>Cuenta</button>
       <button class="tbtn solid desk" id="add2" type="button">+ Agregar</button>
     </div>
   </header>
@@ -278,7 +281,7 @@ let editingRates = false, pendingDelete = null, dbRef = null;
 function loadLocal(){ try{ const raw=localStorage.getItem(LS); if(raw){ const s=JSON.parse(raw); if(s && Array.isArray(s.movs)) state=Object.assign(state,s); } }catch(e){} }
 function saveLocal(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
 let writing=false, dirty=false, timer=null;
-function save(){ saveLocal(); if(!dbRef) return; dirty=true; clearTimeout(timer); timer=setTimeout(flush, 500); }
+function save(){ saveLocal(); acctChanged(); if(!dbRef) return; dirty=true; clearTimeout(timer); timer=setTimeout(flush, 500); }
 async function flush(){
   if(writing||!dirty||!dbRef) return;
   writing=true; dirty=false;
@@ -288,7 +291,179 @@ async function flush(){
 }
 function setSync(k){
   $("#syncNote").textContent = k==="cloud" ? "Tus datos se guardan en tu cuenta de Claude." :
+    k==="acct" ? "Sincronizado con tu cuenta. Verás lo mismo en tu teléfono y en tu PC." :
+    k==="syncing" ? "Sincronizando con tu cuenta…" :
+    k==="offline" ? "Sin conexión. Tus cambios quedan en este equipo y se suben solos cuando vuelva internet." :
+    ACCT_ON ? "Tus datos se guardan solo en este equipo. Para verlos también en otro, entra en Cuenta (opcional)." :
     "Tus datos se guardan en este teléfono o navegador. Para guardarlos o pasarlos a otro equipo, usa Excel.";
+}
+
+/* ---------- cuenta opcional (Supabase): mismos datos en teléfono y PC ---------- */
+const SB_URL = "https://ygdtuswipxtdghlipcdk.supabase.co", SB_KEY = "sb_publishable_DXL2edXjrOETy4yfUoMz3Q_P6fyrQc6";
+const ACCT_ON = !IN_CLAUDE && !!SB_URL && !!SB_KEY;
+const SM = "mis-ahorros-sync";
+let sb=null, sbUser=null, sbBusy=false, sbAgain=false, sbTimer=null, acctState="local", changeSeq=0;
+const readSM = () => { try{ return JSON.parse(localStorage.getItem(SM))||{}; }catch(e){ return {}; } };
+const writeSM = o => { try{ localStorage.setItem(SM, JSON.stringify(o)); }catch(e){} };
+let sbP=null;
+function loadSB(){
+  if(window.supabase && window.supabase.createClient) return Promise.resolve(window.supabase);
+  if(!sbP) sbP=new Promise((res,rej)=>{ const s=document.createElement("script"); s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.99.3/dist/umd/supabase.js"; s.onload=()=>res(window.supabase); s.onerror=()=>{ sbP=null; rej(new Error("load")); }; document.head.appendChild(s); });
+  return sbP;
+}
+function setAcct(k){ acctState=k; setSync(k); const dot=$("#acctDot"); if(dot) dot.hidden=!sbUser; }
+async function startSB(){
+  if(sb) return sb;
+  const lib = await loadSB();
+  sb = lib.createClient(SB_URL, SB_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}});
+  sb.auth.onAuthStateChange((ev, session)=>{
+    const u = session && session.user;
+    if(ev==="PASSWORD_RECOVERY") setTimeout(openNewPass, 0);
+    if(u && (!sbUser || sbUser.id!==u.id)){ sbUser=u; setTimeout(()=>{ cleanUrl(); acctSync(); }, 0); }
+    else if(!u && sbUser){ sbUser=null; setAcct("local"); }
+    else if(u) sbUser=u;
+    const dot=$("#acctDot"); if(dot) dot.hidden=!sbUser;
+  });
+  return sb;
+}
+function cleanUrl(){ if(/access_token|refresh_token|type=|error/.test(location.hash)) history.replaceState(null, "", location.pathname+location.search); }
+async function initAccount(){
+  if(!ACCT_ON) return;
+  $("#account").hidden=false; setSync("local");
+  let had=false; try{ had = Object.keys(localStorage).some(k=>/^sb-.*-auth-token$/.test(k)); }catch(e){}
+  if(had || /access_token|error_description|type=recovery/.test(location.hash)){
+    try{ await startSB(); }catch(e){ setAcct("offline"); }
+  }
+}
+function syncData(){ return {movs: state.movs.filter(m=>!m.demo), meta: state.meta||null, base: state.base}; }
+function applyRemote(r){
+  state.movs = Array.isArray(r.movs) ? r.movs : [];
+  if(r.meta!==undefined) state.meta = r.meta;
+  if(r.base) state.base = r.base;
+  saveLocal(); render();
+}
+function mergeMovs(remote, local){
+  const map = new Map(); (remote||[]).forEach(m=>map.set(m.id,m)); local.filter(m=>!m.demo).forEach(m=>map.set(m.id,m));
+  return [...map.values()];
+}
+function acctChanged(){
+  if(!sbUser) return;
+  changeSeq++; const sm=readSM(); sm.pending=true; writeSM(sm);
+  clearTimeout(sbTimer); sbTimer=setTimeout(acctSync, 800);
+}
+async function acctSync(){
+  if(!sbUser || !sb) return;
+  if(sbBusy){ sbAgain=true; return; }
+  sbBusy=true; sbAgain=false;
+  try{
+    if(acctState!=="acct") setSync("syncing");
+    const uidNow = sbUser.id;
+    const {data, error} = await sb.from("ahorros").select("data").eq("user_id", uidNow).maybeSingle();
+    if(error) throw error;
+    const sm = readSM(); const r = data && data.data || null;
+    let toPush = null;
+    if(!r){ toPush = syncData(); }
+    else if(sm.uid!==uidNow){
+      const merged = mergeMovs(r.movs, state.movs);
+      const need = merged.length > (r.movs||[]).length || (!r.meta && !!state.meta);
+      state.movs = merged; if(r.meta) state.meta = r.meta; if(r.base) state.base = r.base;
+      saveLocal(); render();
+      if(need) toPush = syncData(); else writeSM({uid:uidNow, v:r.v, pending:false});
+    }
+    else if(r.v===sm.v){ if(sm.pending) toPush = syncData(); }
+    else if(sm.pending){ state.movs = mergeMovs(r.movs, state.movs); if(!state.meta && r.meta) state.meta=r.meta; saveLocal(); render(); toPush = syncData(); }
+    else { applyRemote(r); writeSM({uid:uidNow, v:r.v, pending:false}); }
+    if(toPush){
+      toPush.v = uid(); const seq = changeSeq;
+      const res = await sb.from("ahorros").upsert({user_id: uidNow, data: toPush, updated_at: new Date().toISOString()});
+      if(res.error) throw res.error;
+      writeSM({uid:uidNow, v:toPush.v, pending: changeSeq!==seq});
+    }
+    setAcct("acct");
+  }catch(e){ setAcct("offline"); }
+  sbBusy=false;
+  if(sbAgain){ sbAgain=false; acctSync(); }
+}
+function acctErr(e){
+  const m = String(e && (e.message||e.msg||e.error_description) || e || "");
+  if(/invalid login credentials/i.test(m)) return "Correo o contraseña incorrectos.";
+  if(/email not confirmed/i.test(m)) return "Primero confirma tu correo: abre el mensaje que te enviamos (revisa también spam) y toca el enlace.";
+  if(/already registered|already exists/i.test(m)) return "Ese correo ya tiene cuenta. Toca «Entrar».";
+  if(/rate limit|too many/i.test(m)) return "Demasiados intentos. Espera unos minutos y vuelve a probar.";
+  if(/password.*(6|characters|short|weak)/i.test(m)) return "La contraseña debe tener al menos 6 caracteres.";
+  if(/valid email|invalid.*email|email.*invalid/i.test(m)) return "Revisa el correo, parece que no está bien escrito.";
+  if(/fetch|network|load|failed/i.test(m)) return "No hay conexión. Revisa internet e intenta de nuevo.";
+  return m || "No se pudo completar. Intenta de nuevo.";
+}
+function openAccount(){
+  const appUrl = location.origin + location.pathname;
+  if(sbUser){
+    const st = acctState==="offline" ? "Sin conexión ahora. Tus cambios se suben solos cuando vuelva internet." : "Todo está sincronizado. Lo que anotes aquí aparece en tus otros equipos al abrir la app.";
+    sheet(`<div class="sheet">${head("Cuenta")}
+      <div class="acct-msg">Conectado como <b>${esc(sbUser.email)}</b></div>
+      <span class="small muted">${st}</span>
+      <div class="row2"><button class="ghost" type="button" id="ac-sync">Sincronizar ahora</button><button class="ghost" type="button" id="ac-out">Cerrar sesión</button></div>
+      <span class="small muted">Al cerrar sesión se borran los datos de este equipo. Siguen guardados en tu cuenta y vuelven al entrar.</span>
+    </div>`);
+    $("#ac-sync").onclick=async()=>{ closeSheet(); await acctSync(); toast(acctState==="acct"?"Sincronizado":"Sin conexión"); };
+    $("#ac-out").onclick=async()=>{
+      await acctSync();
+      try{ await sb.auth.signOut(); }catch(e){}
+      sbUser=null; state.movs=[]; state.meta=null; saveLocal(); try{ localStorage.removeItem(SM); }catch(e){}
+      closeSheet(); setAcct("local"); render(); toast("Sesión cerrada");
+    };
+    return;
+  }
+  sheet(`<div class="sheet">${head("Cuenta (opcional)")}
+    <span class="small muted">Entra con tu correo para ver tus mismos datos en el teléfono y en la PC. Sin cuenta la app funciona igual y tus datos quedan solo en este equipo.</span>
+    <div class="field"><label for="ac-mail">Correo</label><input id="ac-mail" type="email" autocomplete="email" inputmode="email"></div>
+    <div class="field"><label for="ac-pass">Contraseña</label><input id="ac-pass" type="password" autocomplete="current-password" minlength="6"></div>
+    <div class="err" id="ac-err" hidden></div>
+    <div class="acct-msg" id="ac-ok" hidden></div>
+    <div class="row2"><button class="ghost" type="button" id="ac-new">Crear cuenta</button><button class="primary" type="button" id="ac-in">Entrar</button></div>
+    <button class="linkbtn" type="button" id="ac-forgot">Olvidé mi contraseña</button>
+  </div>`);
+  const err=t=>{ const el=$("#ac-err"); el.textContent=t; el.hidden=!t; $("#ac-ok").hidden=true; };
+  const ok=t=>{ const el=$("#ac-ok"); el.textContent=t; el.hidden=false; $("#ac-err").hidden=true; };
+  const vals=()=>({email:$("#ac-mail").value.trim(), password:$("#ac-pass").value});
+  const busy=(b)=>["#ac-new","#ac-in"].forEach(q=>{ const el=$(q); if(el) el.disabled=b; });
+  $("#ac-in").onclick=async()=>{
+    const v=vals(); if(!v.email||!v.password) return err("Escribe tu correo y tu contraseña.");
+    busy(true); err("");
+    try{ await startSB(); const {error}=await sb.auth.signInWithPassword(v); if(error) throw error; closeSheet(); toast("Sesión iniciada"); }
+    catch(e){ err(acctErr(e)); }
+    busy(false);
+  };
+  $("#ac-new").onclick=async()=>{
+    const v=vals(); if(!v.email) return err("Escribe tu correo.");
+    if((v.password||"").length<6) return err("La contraseña debe tener al menos 6 caracteres.");
+    busy(true); err("");
+    try{ await startSB(); const {data,error}=await sb.auth.signUp({...v, options:{emailRedirectTo:appUrl}}); if(error) throw error;
+      if(data.session){ closeSheet(); toast("Cuenta creada"); }
+      else ok("Listo. Te enviamos un correo a "+v.email+". Ábrelo y toca el enlace para confirmar (revisa también spam). Después vuelve aquí y toca «Entrar».");
+    }catch(e){ err(acctErr(e)); }
+    busy(false);
+  };
+  $("#ac-forgot").onclick=async()=>{
+    const v=vals(); if(!v.email) return err("Escribe tu correo arriba y vuelve a tocar «Olvidé mi contraseña».");
+    try{ await startSB(); const {error}=await sb.auth.resetPasswordForEmail(v.email,{redirectTo:appUrl}); if(error) throw error;
+      ok("Te enviamos un correo a "+v.email+" para poner una contraseña nueva."); }
+    catch(e){ err(acctErr(e)); }
+  };
+}
+function openNewPass(){
+  sheet(`<div class="sheet">${head("Contraseña nueva")}
+    <div class="field"><label for="np-pass">Escribe tu contraseña nueva</label><input id="np-pass" type="password" autocomplete="new-password" minlength="6"></div>
+    <div class="err" id="np-err" hidden></div>
+    <button class="primary" type="button" id="np-ok">Guardar</button>
+  </div>`);
+  $("#np-ok").onclick=async()=>{
+    const pw=$("#np-pass").value; const el=$("#np-err");
+    if(pw.length<6){ el.textContent="La contraseña debe tener al menos 6 caracteres."; el.hidden=false; return; }
+    const {error}=await sb.auth.updateUser({password:pw});
+    if(error){ el.textContent=acctErr(error); el.hidden=false; return; }
+    closeSheet(); cleanUrl(); toast("Contraseña cambiada");
+  };
 }
 async function connectCloud(){
   setSync("local");
@@ -643,6 +818,7 @@ function openGuide(){
       <li><b>Tasa de cada movimiento:</b> lo que anotas en Bs o € con fecha de hoy guarda la tasa del día. Así ves cuánto valía ese día y cuánto vale hoy, y debajo del total, cuánto han perdido o ganado tus Bs y € por la tasa.</li>
       <li><b>Bolívares aparte:</b> el total en dólares solo suma tus $, USDT y €. Los Bs se muestran en «Total en bolívares», con un aproximado en $ que es solo de referencia. Ahí eliges si ese aproximado usa la tasa BCV o la de Binance.</li>
       <li><b>Excel:</b> «Descargar Excel» te da tus movimientos, el resumen por mes, el resumen por día y las tasas. Si editas la hoja «Movimientos» (corriges, agregas o borras filas), puedes subirla en «Subir un Excel editado» y la app se actualiza con lo que tenga el archivo.</li>
+      <li><b>Cuenta (opcional):</b> si entras con tu correo en «Cuenta», ves tus mismos datos en el teléfono y en la PC, y quedan guardados aunque cambies de teléfono. Cada cuenta solo ve sus propios datos. Si no entras, todo sigue funcionando en este equipo.</li>
       <li><b>Guarda tu Excel de vez en cuando.</b> Tus datos viven solo en este teléfono. Si cambias de teléfono o borras la app, abre la app nueva, toca Excel y sube el último archivo que descargaste para recuperar tus movimientos.</li>
       <li><b>Instalarla en el teléfono:</b> en Android, abre la página en Chrome, toca ⋮ y luego «Instalar app» o «Agregar a pantalla principal». En iPhone, ábrela en Safari, toca Compartir y luego «Agregar a inicio».</li>
     </ol>
@@ -940,6 +1116,7 @@ document.addEventListener("click",e=>{
   else if(id==="demo") loadDemo();
   else if(id==="clearDemo"){ state.movs=state.movs.filter(m=>!m.demo); save(); render(); toast("Datos de ejemplo borrados"); }
   else if(id==="guide") openGuide();
+  else if(id==="account") openAccount();
   else if(id==="excel") openExcel();
   else if(id==="goalBtn") openGoal();
   else if(id==="install"&&installEvt){ installEvt.prompt(); installEvt.userChoice.finally(()=>{ installEvt=null; $("#install").hidden=true; }); }
@@ -962,6 +1139,9 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeSheet(); });
 window.addEventListener("resize",()=>{ clearTimeout(window.__rz); window.__rz=setTimeout(renderChart,150); });
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden && sbUser) acctSync(); });
+window.addEventListener("online",()=>{ if(sbUser) acctSync(); });
+setInterval(()=>{ if(!document.hidden && sbUser) acctSync(); }, 60e3);
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden && Date.now()-new Date(state.tasas.fecha).getTime()>10*60e3) fetchRates(); });
 setInterval(()=>{ if(!document.hidden) fetchRates(); }, 10*60e3);
 
@@ -970,5 +1150,6 @@ render();
 setRStatus("Tasas del "+fechaCorta(state.tasas.fecha),"");
 fetchRates();
 connectCloud();
+initAccount();
 })();
 </script>

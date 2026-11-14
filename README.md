@@ -30,3 +30,7 @@ En el propio teléfono o navegador (almacenamiento local). No hay servidor ni ba
 | `manifest.webmanifest`, `sw.js`, `icon-*` | Lo que permite instalarla y abrirla sin conexión |
 
 Para cambiar algo: editar `src/app.html`, correr `python3 build.py` y hacer commit de ambos archivos.
+
+## Cuenta (opcional)
+
+Con el botón **Cuenta** puedes entrar con tu correo y contraseña para ver los mismos datos en el teléfono y en la PC. Los datos se guardan en Supabase, en la tabla `ahorros`, con seguridad por fila: cada cuenta solo puede leer y cambiar su propia fila. Sin cuenta, la app funciona igual y todo queda solo en el equipo. La versión anterior, sin cuentas, está en la rama `version-sin-cuenta`.
