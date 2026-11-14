@@ -191,7 +191,6 @@ textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:
     <div class="tools">
       <button class="tbtn" id="install" type="button" hidden>Instalar app</button>
       <button class="tbtn" id="excel" type="button">Excel</button>
-      <button class="tbtn" id="backup2" type="button">Respaldo</button>
       <button class="tbtn" id="guide" type="button">Guía</button>
       <button class="tbtn solid desk" id="add2" type="button">+ Agregar</button>
     </div>
@@ -223,7 +222,7 @@ textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:
     <section class="foot small muted">
       <span id="syncNote"></span>
       <span class="links">
-        <button class="linkbtn" id="backup" type="button">Respaldo</button>
+        <button class="linkbtn" id="clearDemo" type="button" hidden>Borrar datos de ejemplo</button>
         <a class="linkbtn" href="https://www.bcv.org.ve/" target="_blank" rel="noopener">Ver BCV</a>
         <a class="linkbtn" href="https://p2p.binance.com/es/trade/all-payments/USDT?fiat=VES" target="_blank" rel="noopener">Ver Binance P2P</a>
       </span>
@@ -289,7 +288,7 @@ async function flush(){
 }
 function setSync(k){
   $("#syncNote").textContent = k==="cloud" ? "Tus datos se guardan en tu cuenta de Claude." :
-    "Tus datos se guardan en este teléfono o navegador. Usa Respaldo para pasarlos a otro equipo.";
+    "Tus datos se guardan en este teléfono o navegador. Para guardarlos o pasarlos a otro equipo, usa Excel.";
 }
 async function connectCloud(){
   setSync("local");
@@ -411,6 +410,7 @@ function monthlyClose(){
 /* ---------- render ---------- */
 function render(){
   renderRates();
+  $("#clearDemo").hidden = !state.movs.some(m=>m.demo);
   const byCat = {efectivo:0,binance:0,banco:0}, nat = {efectivo:{},binance:{},banco:{}};
   state.movs.forEach(m=>legs(m).forEach(l=>{ byCat[l.cat]+=usdLeg(l); nat[l.cat][l.cur]=(nat[l.cat][l.cur]||0)+l.amt; }));
   const fx=fxEffect();
@@ -628,24 +628,6 @@ function openForm(m){
   if(matchMedia("(min-width:700px)").matches) setTimeout(()=>$("#f-monto").focus(),50);
 }
 
-function openBackup(){
-  sheet(`<div class="sheet">${head("Respaldo")}
-    <span class="small muted">Copia este texto y guárdalo en tus notas o en un chat contigo mismo. Para pasar tus datos a otro equipo, pégalo allá en Respaldo y toca Restaurar.</span>
-    <textarea id="bk" spellcheck="false" aria-label="Texto del respaldo">${esc(JSON.stringify({movs:state.movs, meta:state.meta||null}))}</textarea>
-    <div class="err" id="bk-err" hidden></div>
-    <div class="row2"><button class="ghost" type="button" id="bk-copy">Copiar</button><button class="primary" type="button" id="bk-load">Restaurar</button></div>
-    ${state.movs.some(m=>m.demo)?`<button class="ghost" type="button" id="bk-demo">Borrar datos de ejemplo</button>`:""}
-  </div>`);
-  const bd=$("#bk-demo"); if(bd) bd.onclick=()=>{ state.movs=state.movs.filter(m=>!m.demo); save(); closeSheet(); render(); toast("Datos de ejemplo borrados"); };
-  $("#bk-copy").onclick = ()=>{ const ta=$("#bk"); (navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast("Respaldo copiado")).catch(()=>{ ta.select(); toast("Texto seleccionado; cópialo"); }); };
-  $("#bk-load").onclick = ()=>{
-    try{ const d=JSON.parse($("#bk").value); if(!Array.isArray(d.movs)) throw 0;
-      state.movs=d.movs.filter(m=>m&&CATS[m.cat]&&CUR[m.moneda]&&m.monto>0&&m.fecha&&(m.tipo!=="mover"||(CATS[m.to]&&CUR[m.moneda2]&&m.monto2>0)));
-      if(d.meta!==undefined) state.meta=d.meta; save(); closeSheet(); render(); toast("Respaldo restaurado"); }
-    catch(e){ const el=$("#bk-err"); el.textContent="Ese texto no es un respaldo válido. Pega el texto completo que copiaste."; el.hidden=false; }
-  };
-}
-
 function openGuide(){
   sheet(`<div class="sheet guide">${head("Guía rápida")}
     <ol>
@@ -661,7 +643,7 @@ function openGuide(){
       <li><b>Tasa de cada movimiento:</b> lo que anotas en Bs o € con fecha de hoy guarda la tasa del día. Así ves cuánto valía ese día y cuánto vale hoy, y debajo del total, cuánto han perdido o ganado tus Bs y € por la tasa.</li>
       <li><b>Bolívares aparte:</b> el total en dólares solo suma tus $, USDT y €. Los Bs se muestran en «Total en bolívares», con un aproximado en $ que es solo de referencia. Ahí eliges si ese aproximado usa la tasa BCV o la de Binance.</li>
       <li><b>Excel:</b> «Descargar Excel» te da tus movimientos, el resumen por mes, el resumen por día y las tasas. Si editas la hoja «Movimientos» (corriges, agregas o borras filas), puedes subirla en «Subir un Excel editado» y la app se actualiza con lo que tenga el archivo.</li>
-      <li><b>Respaldo:</b> copia el texto de vez en cuando. Si cambias de teléfono, lo pegas y recuperas todo.</li>
+      <li><b>Guarda tu Excel de vez en cuando.</b> Tus datos viven solo en este teléfono. Si cambias de teléfono o borras la app, abre la app nueva, toca Excel y sube el último archivo que descargaste para recuperar tus movimientos.</li>
       <li><b>Instalarla en el teléfono:</b> en Android, abre la página en Chrome, toca ⋮ y luego «Instalar app» o «Agregar a pantalla principal». En iPhone, ábrela en Safari, toca Compartir y luego «Agregar a inicio».</li>
     </ol>
     <p class="small muted">Las tasas vienen del BCV (dólar y euro oficial) y del promedio de compra y venta de USDT en Binance P2P. Se actualizan solas cada 10 minutos cuando la app está abierta.</p>
@@ -944,7 +926,7 @@ function loadDemo(){
     [1,6,"banco","ahorro","VES",22000,"Sueldo"],[1,15,"binance","ahorro","USDT",100,""],[1,28,"efectivo","ahorro","USD",60,""],
     [0,1,"efectivo","ahorro","USD",80,"Quincena"],[0,1,"binance","retiro","USDT",30,"Pago"]];
   state.movs = rows.map(r=>({id:uid(),t:Date.now(),fecha:k(r[0],r[1]),cat:r[2],tipo:r[3],moneda:r[4],monto:r[5],nota:r[6],demo:true}));
-  save(); render(); toast("Datos de ejemplo cargados. Puedes borrarlos en Respaldo.");
+  save(); render(); toast("Datos de ejemplo cargados. Puedes borrarlos abajo, en «Borrar datos de ejemplo».");
 }
 function toast(t){ $("#toastHost").innerHTML=`<div class="toast" role="status">${esc(t)}</div>`; clearTimeout(toast.t); toast.t=setTimeout(()=>$("#toastHost").innerHTML="",2600); }
 
@@ -956,7 +938,7 @@ document.addEventListener("click",e=>{
   const id=el.id, d=el.dataset;
   if(id==="add"||id==="add2") openForm();
   else if(id==="demo") loadDemo();
-  else if(id==="backup"||id==="backup2") openBackup();
+  else if(id==="clearDemo"){ state.movs=state.movs.filter(m=>!m.demo); save(); render(); toast("Datos de ejemplo borrados"); }
   else if(id==="guide") openGuide();
   else if(id==="excel") openExcel();
   else if(id==="goalBtn") openGoal();
