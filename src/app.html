@@ -603,7 +603,7 @@ function openGuide(){
       <li><b>Meta:</b> toca «Poner una meta de ahorro» debajo del total. Si le pones fecha, te dice cuánto ahorrar por mes.</li>
       <li><b>Tasa de cada movimiento:</b> lo que anotas en Bs o € con fecha de hoy guarda la tasa del día. Así ves cuánto valía ese día y cuánto vale hoy, y debajo del total, cuánto han perdido o ganado tus Bs y € por la tasa.</li>
       <li><b>Bs a BCV o Bs a Binance</b> cambia con qué tasa se pasan a dólares tus bolívares. Los dólares y los USDT no cambian.</li>
-      <li><b>Excel</b> descarga todos tus movimientos, el resumen por mes, el resumen por día y las tasas.</li>
+      <li><b>Excel:</b> «Descargar Excel» te da tus movimientos, el resumen por mes, el resumen por día y las tasas. Si editas la hoja «Movimientos» (corriges, agregas o borras filas), puedes subirla en «Subir un Excel editado» y la app se actualiza con lo que tenga el archivo.</li>
       <li><b>Respaldo:</b> copia el texto de vez en cuando. Si cambias de teléfono, lo pegas y recuperas todo.</li>
       <li><b>Instalarla en el teléfono:</b> en Android, abre la página en Chrome, toca ⋮ y luego «Instalar app» o «Agregar a pantalla principal». En iPhone, ábrela en Safari, toca Compartir y luego «Agregar a inicio».</li>
     </ol>
@@ -612,6 +612,66 @@ function openGuide(){
 }
 
 /* ---------- Excel ---------- */
+function openExcel(){
+  sheet(`<div class="sheet">${head("Excel")}
+    <button class="primary" type="button" id="x-down">Descargar Excel</button>
+    <div class="field"><label for="x-file">Subir un Excel editado</label>
+      <input id="x-file" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></div>
+    <span class="small muted">Puedes editar, agregar o borrar filas en la hoja «Movimientos» y subirla aquí. Las columnas que importan son Fecha, Dónde, Tipo, Moneda, Monto y Nota; las demás se calculan solas. Antes de cambiar nada te muestro lo que encontré.</span>
+    <div id="x-out"></div>
+  </div>`);
+  $("#x-down").onclick=()=>{ closeSheet(); exportExcel(); };
+  $("#x-file").onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(f) importExcel(f); };
+}
+const norm = v => String(v==null?"":v).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+function pick(row, names){ for(const k of Object.keys(row)){ const n=norm(k); if(names.some(x=>n===x)) return row[k]; } return ""; }
+function toDate(v){
+  if(v instanceof Date && !isNaN(v)) return v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0");
+  const s=String(v||"").trim(); let m;
+  if((m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return m[1]+"-"+m[2].padStart(2,"0")+"-"+m[3].padStart(2,"0");
+  if((m=s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/))){ const y=m[3].length===2?"20"+m[3]:m[3]; return y+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0"); }
+  return "";
+}
+function toCat(v){ const n=norm(v); if(n.includes("efect")) return "efectivo"; if(n.includes("binan")) return "binance"; if(n.includes("banc")) return "banco"; return ""; }
+function toCur(v){ const n=norm(v).replace(/\s/g,""); if(!n) return ""; if(n==="usdt") return "USDT"; if(n==="$"||n==="usd"||n.startsWith("dolar")) return "USD"; if(n==="€"||n==="eur"||n.startsWith("euro")) return "EUR"; if(n==="bs"||n==="ves"||n.startsWith("bol")) return "VES"; return ""; }
+const toNum = v => typeof v==="number" ? v : parseNum(v);
+async function importExcel(file){
+  const out=$("#x-out"); out.innerHTML=`<span class="small muted">Leyendo el archivo…</span>`;
+  let X; try{ X=await loadXLSX(); }catch(e){ out.innerHTML=`<div class="err">No se pudo abrir el lector de Excel. Revisa tu conexión e intenta de nuevo.</div>`; return; }
+  let rows;
+  try{
+    const wb=X.read(await file.arrayBuffer(),{type:"array",cellDates:true});
+    const name=wb.SheetNames.find(n=>norm(n)==="movimientos")||wb.SheetNames[0];
+    rows=X.utils.sheet_to_json(wb.Sheets[name],{defval:"",raw:true});
+  }catch(e){ out.innerHTML=`<div class="err">Ese archivo no se pudo leer. Usa el Excel que descargaste de la app.</div>`; return; }
+  const movs=[], bad=[];
+  rows.forEach((r,i)=>{
+    const fila=i+2, fecha=toDate(pick(r,["fecha"])), donde=String(pick(r,["donde"])), tipoTxt=norm(pick(r,["tipo"]));
+    const monto=toNum(pick(r,["monto"])), moneda=toCur(pick(r,["moneda"])), nota=String(pick(r,["nota"])||"").trim().slice(0,60);
+    if(!fecha && !donde && !(monto)) return; // fila vacía
+    const parts=donde.split(/→|->|>/), cat=toCat(parts[0]);
+    let tipo = tipoTxt.startsWith("mov") ? "mover" : tipoTxt.startsWith("ret")||tipoTxt.startsWith("sal") ? "retiro" : tipoTxt.startsWith("aho")||tipoTxt.startsWith("ent") ? "ahorro" : (monto<0?"retiro":"ahorro");
+    if(!fecha||!cat||!moneda||!(Math.abs(monto)>0)){ bad.push(fila); return; }
+    const rec={id:uid(), t:Date.now()+i, fecha, cat, tipo, moneda, monto:Math.abs(monto), nota};
+    if(tipo==="mover"){
+      const to=toCat(parts[1]||""), monto2=toNum(pick(r,["llega"])), moneda2=toCur(pick(r,["moneda que llega"]));
+      if(!to||to===cat||!(monto2>0)||!moneda2){ bad.push(fila); return; }
+      Object.assign(rec,{to, monto2:Math.abs(monto2), moneda2});
+    }
+    const tu=toNum(pick(r,["tasa $ bcv ese dia"])), tb=toNum(pick(r,["tasa binance ese dia"])), te=toNum(pick(r,["tasa € bcv ese dia"]));
+    if(tu>0) rec.tasa={usd:tu, usdt:tb>0?tb:tu, eur:te>0?te:tu*(state.tasas.eur/state.tasas.usd)};
+    movs.push(rec);
+  });
+  if(!movs.length){ out.innerHTML=`<div class="err">No encontré movimientos válidos. Revisa que la hoja tenga las columnas Fecha, Dónde, Tipo, Moneda y Monto.</div>`; return; }
+  const total=movs.reduce((s,m)=>s+toUSD(m),0);
+  out.innerHTML=`<div class="mvrow">
+    <b>Encontré ${movs.length} movimiento${movs.length===1?"":"s"} · total ${money(total,"USD")}</b>
+    ${bad.length?`<span class="small err">Dejé fuera ${bad.length} fila${bad.length===1?"":"s"} porque les falta la fecha, el lugar, la moneda o el monto: ${bad.slice(0,8).join(", ")}${bad.length>8?"…":""}.</span>`:""}
+    <span class="small muted">Esto reemplaza los ${state.movs.length} movimientos que tiene la app ahora. Tu meta y las tasas no cambian.</span>
+    <div class="row2"><button class="ghost" type="button" data-close>Cancelar</button><button class="primary" type="button" id="x-ok">Reemplazar</button></div>
+  </div>`;
+  $("#x-ok").onclick=()=>{ state.movs=movs; save(); closeSheet(); render(); toast("Excel importado: "+movs.length+" movimientos"); };
+}
 let xlsxP=null;
 function loadXLSX(){
   if(window.XLSX) return Promise.resolve(window.XLSX);
@@ -627,8 +687,8 @@ async function exportExcel(){
   const movs=[...state.movs].sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(m=>({
     "Fecha": m.fecha, "Mes": monthLong(ym(m.fecha)), "Dónde": isMove(m)?`${CATS[m.cat].name} → ${CATS[m.to].name}`:CATS[m.cat].name,
     "Tipo": isMove(m)?"Mover":m.tipo==="retiro"?"Retiro":"Ahorro",
-    "Moneda": cn(m.moneda), "Monto": r2(signed(m)), "Llega": isMove(m)?`${fmt(m.monto2)} ${cn(m.moneda2)}`:"",
-    "Tasa $ BCV ese día": m.tasa?m.tasa.usd:"", "Tasa Binance ese día": m.tasa?m.tasa.usdt:"",
+    "Moneda": cn(m.moneda), "Monto": r2(signed(m)), "Llega": isMove(m)?r2(m.monto2):"", "Moneda que llega": isMove(m)?cn(m.moneda2):"",
+    "Tasa $ BCV ese día": m.tasa?m.tasa.usd:"", "Tasa € BCV ese día": m.tasa?m.tasa.eur:"", "Tasa Binance ese día": m.tasa?m.tasa.usdt:"",
     "En $ ese día": hasFx(m)?r2(thenUSD(m)):"", "En $ hoy": r2(toUSD(m)), "Nota": m.nota||""
   }));
   const res=monthlyClose().map(c=>({ "Mes": monthLong(c.k), "Ahorro neto del mes $": r2(c.net),
@@ -642,7 +702,7 @@ async function exportExcel(){
   if(state.meta&&state.meta.monto) tas.push({"Tasa":"Meta de ahorro ($)","Valor":state.meta.monto},{"Tasa":"Fecha de la meta","Valor":state.meta.fecha||"Sin fecha"});
   const wb=X.utils.book_new();
   const add=(rows,name,widths)=>{ const ws=X.utils.json_to_sheet(rows); ws["!cols"]=widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb,ws,name); };
-  add(movs,"Movimientos",[12,18,18,9,8,14,16,14,14,12,12,28]);
+  add(movs,"Movimientos",[12,18,18,9,8,14,12,10,12,12,12,12,12,28]);
   add(res,"Resumen por mes",[18,18,12,12,12,16]);
   add(dia,"Resumen por día",[12,12,12,12,12,14,16]);
   add(tas,"Tasas",[32,22]);
@@ -679,7 +739,7 @@ document.addEventListener("click",e=>{
   else if(id==="demo") loadDemo();
   else if(id==="backup") openBackup();
   else if(id==="guide") openGuide();
-  else if(id==="excel") exportExcel();
+  else if(id==="excel") openExcel();
   else if(id==="goalBtn") openGoal();
   else if(id==="install"&&installEvt){ installEvt.prompt(); installEvt.userChoice.finally(()=>{ installEvt=null; $("#install").hidden=true; }); }
   else if(id==="refresh") fetchRates(true);

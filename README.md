@@ -18,7 +18,7 @@ Las tasas se actualizan solas cada 10 minutos mientras la app está abierta. Los
 
 ## Dónde quedan los datos
 
-En el propio teléfono o navegador (almacenamiento local). No hay servidor ni base de datos. El botón **Respaldo** copia todo como texto para guardarlo o pasarlo a otro equipo, y el botón **Excel** descarga movimientos, resumen por mes, resumen por día y tasas.
+En el propio teléfono o navegador (almacenamiento local). No hay servidor ni base de datos. El botón **Respaldo** copia todo como texto para guardarlo o pasarlo a otro equipo, y el botón **Excel** descarga movimientos, resumen por mes, resumen por día y tasas, y también permite subir de vuelta la hoja «Movimientos» editada para actualizar la app.
 
 ## Archivos
 
