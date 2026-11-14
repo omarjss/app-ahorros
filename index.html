@@ -137,6 +137,12 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .day{flex-wrap:wrap}
 .day span:last-child{text-align:right;margin-left:auto}
 .list{display:flex;flex-direction:column}
+.pager{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;padding-top:4px}
+.pager button{min-width:38px;height:38px;padding:0 8px;border:1px solid var(--line);background:var(--bg);border-radius:10px;font-weight:600;font-size:14px}
+.pager button[aria-current="page"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.pager button:disabled{opacity:.35;cursor:default}
+.pager .gap{color:var(--muted);padding:0 2px}
+.pager .info{flex-basis:100%;text-align:center}
 .mov{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px 0;border-top:1px solid var(--line)}
 .mov:first-child{border-top:0}
 .mov .sw{width:10px;height:10px;border-radius:3px;background:var(--c)}
@@ -265,6 +271,7 @@ textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:
       <div class="months" id="months"></div>
       <div class="mstats" id="mstats"></div>
       <div class="list" id="list"></div>
+      <nav class="pager" id="pager" aria-label="Páginas de movimientos" hidden></nav>
     </section>
   </div>
 </div>
@@ -299,6 +306,7 @@ const esc = s => String(s||"").replace(/[&<>"]/g,ch=>({"&":"&amp;","<":"&lt;",">
 
 let state = {movs:[], tasas:{usd:911.62, eur:1009.34, usdt:1071.01, fecha:"2026-11-14T12:00:00Z", origen:"referencia"}, base:"bcv"};
 let selMonth = ym(today());
+let pg = 1; const PER = 10;
 let editingRates = false, pendingDelete = null, dbRef = null;
 
 /* ---------- guardado ---------- */
@@ -713,6 +721,21 @@ function renderChart(){
   });
   svg.setAttribute("viewBox",`0 0 ${W} ${H}`); svg.innerHTML=out;
 }
+function renderPager(pages, total){
+  const el=$("#pager");
+  if(pages<=1){ el.hidden=true; el.innerHTML=""; return; }
+  const nums=[]; for(let i=1;i<=pages;i++){ if(i===1||i===pages||Math.abs(i-pg)<=1) nums.push(i); else if(nums[nums.length-1]!=="…") nums.push("…"); }
+  const a=(pg-1)*PER+1, b=Math.min(total, pg*PER);
+  el.hidden=false;
+  el.innerHTML = `<button type="button" data-pg="${pg-1}" ${pg===1?"disabled":""} aria-label="Página anterior">‹</button>`+
+    nums.map(n=>n==="…"?`<span class="gap">…</span>`:`<button type="button" data-pg="${n}" ${n===pg?'aria-current="page"':""}>${n}</button>`).join("")+
+    `<button type="button" data-pg="${pg+1}" ${pg===pages?"disabled":""} aria-label="Página siguiente">›</button>`+
+    `<span class="info small muted">${a}–${b} de ${total} movimientos</span>`;
+}
+function toListTop(){
+  const l=$("#list"); l.scrollTop=0;
+  const r=l.getBoundingClientRect(); if(r.top<0) window.scrollBy({top:r.top-70, behavior:"smooth"});
+}
 function renderMonth(){
   const ms = months().reverse();
   $("#months").innerHTML = ms.map(k=>`<button type="button" data-m="${k}" aria-pressed="${k===selMonth}">${monthLong(k)}</button>`).join("");
@@ -723,13 +746,16 @@ function renderMonth(){
     <div class="mstat"><div class="k">Neto</div><div class="v num ${ah-re<0?"neg":""}">${money(ah-re,"USD")}</div></div>
     ${Math.abs(nbs)>=0.005?`<div class="mstat" style="grid-column:1/-1"><div class="k">Bolívares del mes</div><div class="v num ${nbs<0?"neg":"pos"}">${nbs<0?"":"+"}${money(nbs,"VES")}</div></div>`:""}`;
   if(!state.movs.length){
+    $("#pager").hidden=true;
     $("#list").innerHTML = `<div class="empty"><b style="color:var(--ink)">Aún no hay movimientos</b><span>Toca <b>+ Agregar</b> y anota lo que tienes hoy en efectivo, Binance y banco.</span><button class="ghost" type="button" id="demo">Ver con datos de ejemplo</button></div>`;
     return;
   }
-  if(!list.length){ $("#list").innerHTML = `<div class="empty">Sin movimientos en ${monthLong(selMonth)}.</div>`; return; }
+  if(!list.length){ $("#pager").hidden=true; $("#list").innerHTML = `<div class="empty">Sin movimientos en ${monthLong(selMonth)}.</div>`; return; }
   const dayNet={}, dayBs={}; list.forEach(m=>{ if(isMove(m)) return; dayNet[m.fecha]=(dayNet[m.fecha]||0)+dUSD(m); dayBs[m.fecha]=(dayBs[m.fecha]||0)+dBS(m); });
+  const pages = Math.max(1, Math.ceil(list.length/PER)); if(pg>pages) pg=pages; if(pg<1) pg=1;
+  renderPager(pages, list.length);
   let lastDay="";
-  $("#list").innerHTML = list.map(m=>{
+  $("#list").innerHTML = list.slice((pg-1)*PER, pg*PER).map(m=>{
     let hdr="";
     if(m.fecha!==lastDay){ lastDay=m.fecha; const n=dayNet[m.fecha]||0, nb=dayBs[m.fecha]||0;
       hdr=`<div class="day"><span>${cap(new Date(m.fecha+"T12:00").toLocaleDateString("es-VE",{weekday:"long",day:"numeric",month:"long"}))}</span><span class="num ${n<0||(!n&&nb<0)?"neg":"pos"}">${n||nb?sumMoney(n,nb):""}</span></div>`; }
@@ -840,6 +866,7 @@ function openForm(m){
     if(m && m.tasa && m.fecha===fecha) rec.tasa=m.tasa;
     else if(fecha===today()) rec.tasa={usd:state.tasas.usd, eur:state.tasas.eur, usdt:state.tasas.usdt};
     if(m) state.movs = state.movs.map(x=>x.id===m.id?rec:x); else state.movs.push(rec);
+    if(!m || ym(fecha)!==selMonth) pg=1;
     selMonth = ym(fecha); save(); closeSheet(); render(); toast(m?"Cambios guardados":"Movimiento agregado");
   });
   if(matchMedia("(min-width:700px)").matches) setTimeout(()=>$("#f-monto").focus(),50);
@@ -1174,7 +1201,8 @@ document.addEventListener("click",e=>{
     } else { editingRates=true; renderRates(); const i=$("#rate-usd"); if(i) i.focus(); }
   }
   else if(d.base){ state.base=d.base; save(); render(); }
-  else if(d.m){ selMonth=d.m; pendingDelete=null; renderChart(); renderMonth(); }
+  else if(d.pg){ pg=+d.pg; pendingDelete=null; renderMonth(); toListTop(); }
+  else if(d.m){ selMonth=d.m; pg=1; pendingDelete=null; renderChart(); renderMonth(); }
   else if(d.edit){ const m=state.movs.find(x=>x.id===d.edit); if(m) openForm(m); }
   else if(d.ask){ pendingDelete=d.ask; renderMonth(); }
   else if(el.hasAttribute("data-cancel")){ pendingDelete=null; renderMonth(); }
