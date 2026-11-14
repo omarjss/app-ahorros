@@ -58,6 +58,7 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 /* encabezado */
 .top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .top h1{font-size:24px;font-weight:800;letter-spacing:-.01em}
+@media (max-width:420px){.top h1{font-size:21px}.tbtn{padding:7px 10px}.tools{gap:5px}}
 .tools{display:flex;gap:6px;flex-wrap:wrap}
 .tbtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center}
 .tbtn.solid{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
@@ -204,6 +205,7 @@ textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:
     <div class="tools">
       <button class="tbtn" id="install" type="button" hidden>Instalar app</button>
       <button class="tbtn" id="excel" type="button">Excel</button>
+      <button class="tbtn" id="backup2" type="button">Respaldo</button>
       <button class="tbtn" id="guide" type="button">Guía</button>
       <button class="tbtn solid desk" id="add2" type="button">+ Agregar</button>
     </div>
@@ -968,7 +970,7 @@ document.addEventListener("click",e=>{
   const id=el.id, d=el.dataset;
   if(id==="add"||id==="add2") openForm();
   else if(id==="demo") loadDemo();
-  else if(id==="backup") openBackup();
+  else if(id==="backup"||id==="backup2") openBackup();
   else if(id==="guide") openGuide();
   else if(id==="excel") openExcel();
   else if(id==="goalBtn") openGoal();
