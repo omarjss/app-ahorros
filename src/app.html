@@ -411,7 +411,7 @@ function render(){
 function renderGoal(total){
   const g=state.meta;
   if(!g||!(g.monto>0)){ $("#goal").innerHTML=`<button class="linkbtn addgoal" type="button" id="goalBtn">+ Poner una meta de ahorro</button>`; return; }
-  const p=Math.min(1,Math.max(0,total/g.monto)), falta=Math.max(0,g.monto-total);
+  const real=Math.max(0,total/g.monto), p=Math.min(1,real), falta=Math.max(0,g.monto-total), extra=total-g.monto;
   let ritmo="";
   if(g.fecha && falta>0){
     const now=new Date(), end=new Date(g.fecha+"T12:00");
@@ -419,9 +419,10 @@ function renderGoal(total){
     ritmo = ml>=1 ? ` · ${money(falta/ml,"USD")} al mes hasta ${monthLong(ym(g.fecha)).toLowerCase()}` : " · la fecha de la meta ya pasó";
   }
   $("#goal").innerHTML=`<button class="goal" type="button" id="goalBtn" aria-label="Editar meta">
-    <span class="goal-top"><span>${esc(g.nombre)||"Meta"} · ${money(g.monto,"USD")}</span><span class="num">${fmt(p*100,0)}%</span></span>
-    <span class="gbar"><span style="width:${p*100}%"></span></span>
-    <span class="small muted num">${falta>0?`Te faltan ${money(falta,"USD")}${ritmo}`:"¡Meta cumplida! Toca para poner una nueva."}</span></button>`;
+    <span class="goal-top"><span>${falta>0?"":"✓ "}${esc(g.nombre)||"Meta"} · ${money(g.monto,"USD")}</span><span class="num ${falta>0?"":"pos"}">${fmt(real*100,0)}%</span></span>
+    <span class="gbar"><span style="width:${p*100}%;${falta>0?"":"background:var(--cash)"}"></span></span>
+    <span class="small num ${falta>0?"muted":"pos"}">${falta>0?`Te faltan ${money(falta,"USD")}${ritmo}`
+      : extra>=0.01 ? `¡Meta cumplida! La superaste por ${money(extra,"USD")}. Toca para poner una nueva.` : "¡Meta cumplida! Toca para poner una nueva."}</span></button>`;
 }
 function openGoal(){
   const g=state.meta||{};
@@ -506,6 +507,7 @@ function openForm(m){
       <button type="button" data-tipo="ahorro" aria-pressed="${tipo==="ahorro"}">Entra</button>
       <button type="button" data-tipo="retiro" aria-pressed="${tipo==="retiro"}">Sale</button>
       <button type="button" data-tipo="mover" aria-pressed="${tipo==="mover"}">Mover</button></div>
+    <span class="small muted" id="f-hint"></span>
     <div class="field"><label id="f-donde">${tipo==="mover"?"Desde":"Dónde"}</label>
     <div class="cats" role="group" aria-labelledby="f-donde">${Object.entries(CATS).map(([k,c])=>`<button type="button" data-cat="${k}" style="--c:${c.c}" aria-pressed="${k===cat}">${c.name}</button>`).join("")}</div></div>
     <div class="row2">
@@ -530,7 +532,9 @@ function openForm(m){
     <button class="primary" type="submit">${m?"Guardar cambios":"Agregar"}</button>
   </form>`);
   const f=$("#f");
+  const HINT={ahorro:"Dinero que guardas: suma a tu ahorro.", retiro:"Dinero que sacas o gastas: resta de tu ahorro.", mover:"Pasas dinero de un bolsillo a otro: tu ahorro total no cambia."};
   const prev=()=>{
+    $("#f-hint").textContent=HINT[tipo]||"";
     const n=parseNum($("#f-monto").value), cur=$("#f-moneda").value;
     $("#f-prev").textContent = n>0 && cur!=="USD" && tipo!=="mover" ? "≈ "+money(amtUSD(n,cur),"USD")+" con la tasa de hoy" : "";
     if(tipo==="mover" && !m2edited){ const v=n>0?convert(n,cur,$("#f-moneda2").value):0; $("#f-monto2").value = v>0 ? fmt(v) : ""; }
@@ -592,7 +596,8 @@ function openGuide(){
       <li><b>Primer día: anota lo que ya tienes.</b> Toca + Agregar y crea un movimiento por cada lugar: uno para Efectivo, otro para Binance y otro para Banco, con el saldo que tienes hoy. Quedan con la fecha de hoy y ese mes pasa a ser tu punto de partida.</li>
       <li><b>Cada vez que ahorres, agrega solo lo nuevo.</b> Si guardas $50 más, anotas +$50, no el total. La app suma todo y el total sube solo. Ese ahorro aparece en el mes de su fecha.</li>
       <li><b>Control por día:</b> dentro de cada mes los movimientos salen agrupados por fecha, con lo que entró o salió ese día. En el Excel también hay una hoja «Resumen por día».</li>
-      <li><b>Cuando saques dinero,</b> elige «Sale (retiro)». Se resta del bolsillo y del total.</li>
+      <li><b>Entra, Sale y Mover:</b> «Entra» es dinero que guardas y suma. «Sale» es dinero que sacas o gastas y resta. «Mover» es pasar dinero de un bolsillo a otro, así que el total no cambia.</li>
+      <li><b>Cuando saques dinero,</b> elige «Sale». Se resta del bolsillo y del total.</li>
       <li><b>¿Algo de un mes pasado?</b> Cambia la fecha en el formulario y queda en ese mes.</li>
       <li><b>Pasar dinero de un lugar a otro</b> (por ejemplo, de Banco a Binance): elige «Mover», indica desde dónde, hacia dónde y cuánto llegó. No cuenta como ahorro ni como retiro.</li>
       <li><b>Meta:</b> toca «Poner una meta de ahorro» debajo del total. Si le pones fecha, te dice cuánto ahorrar por mes.</li>
