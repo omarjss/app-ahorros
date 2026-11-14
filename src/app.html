@@ -149,6 +149,14 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .mvrow .cats button{background:var(--surface)}
 .amt .to{display:block;color:var(--muted);font-weight:500;font-size:13px}
 .preview:empty{display:none}
+.pm{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;background:var(--bg)}
+.pm-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.chip{border:1.5px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 12px;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px}
+.chip::before{content:"";width:14px;height:14px;border-radius:4px;border:1.5px solid var(--muted);box-sizing:border-box}
+.chip[aria-pressed="true"]{border-color:var(--bank);color:var(--bank)}
+.chip[aria-pressed="true"]::before{background:var(--bank);border-color:var(--bank);box-shadow:inset 0 0 0 2px var(--surface)}
+.pm .seg{background:var(--surface)}
+.pm .seg button[aria-pressed="true"]{background:var(--chip)}
 .ghost{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-weight:600}
 
 /* hojas */
@@ -368,9 +376,12 @@ function convert(n, from, to){
 const isMove = m => m.tipo==="mover";
 function legs(m){
   if(isMove(m)) return [{cat:m.cat, cur:m.moneda, amt:-m.monto},{cat:m.to, cur:m.moneda2, amt:m.monto2}];
-  return [{cat:m.cat, cur:m.moneda, amt:m.monto*(m.tipo==="retiro"?-1:1)}];
+  return [{cat:m.cat, cur:m.moneda, amt:m.tipo==="retiro" ? -(m.monto+(m.comision||0)) : m.monto}];
 }
-const signed = m => m.monto*(m.tipo==="ahorro"?1:-1);
+/* Monto con signo; en un retiro incluye la comisión del pago móvil */
+const signed = m => m.tipo==="ahorro" ? m.monto : -(m.monto + (m.tipo==="retiro"?(m.comision||0):0));
+/* Pago móvil persona a persona: 0,30% del monto, mínimo Bs 14 */
+const pmFee = n => Math.max(14, Math.round(n*0.003*100)/100);
 const toUSD = m => legs(m).reduce((s,l)=>s+amtUSD(l.amt,l.cur),0);
 /* Dólares reales: los Bs NO se suman a los totales en $; se muestran aparte */
 const usdLeg = l => l.cur==="VES" ? 0 : amtUSD(l.amt,l.cur);
@@ -504,7 +515,7 @@ function renderMonth(){
     if(m.fecha!==lastDay){ lastDay=m.fecha; const n=dayNet[m.fecha]||0, nb=dayBs[m.fecha]||0;
       hdr=`<div class="day"><span>${cap(new Date(m.fecha+"T12:00").toLocaleDateString("es-VE",{weekday:"long",day:"numeric",month:"long"}))}</span><span class="num ${n<0||(!n&&nb<0)?"neg":"pos"}">${n||nb?sumMoney(n,nb):""}</span></div>`; }
     const c=CATS[m.cat]; const del = pendingDelete===m.id, mv=isMove(m);
-    const route = mv ? `${c.name} → ${CATS[m.to].name}` : c.name;
+    const route = (mv ? `${c.name} → ${CATS[m.to].name}` : c.name) + (m.pm ? ` · Pago móvil${m.comision?`, comisión ${money(m.comision,"VES")}`:" sin comisión"}` : "");
     let val="";
     if(!mv && hasFx(m)){ const a=thenUSD(m), b=toUSD(m); if(Math.abs(a)>=0.01 && Math.abs(b/a-1)>=0.005) val=` · valía ${money(Math.abs(a),"USD")}, hoy ${money(Math.abs(b),"USD")}`; }
     const amount = mv ? `${money(-m.monto,m.moneda)} <span class="to">→ ${money(m.monto2,m.moneda2)}</span>`
@@ -524,7 +535,7 @@ const head = t => `<div class="sheet-h"><h2>${t}</h2><button type="button" class
 
 function openForm(m){
   const ed = m || {cat:"efectivo", tipo:"ahorro", moneda:"USD", fecha:today(), monto:"", nota:""};
-  let cat=ed.cat, tipo=ed.tipo, to=ed.to||(cat==="banco"?"binance":"banco"), m2edited=!!m;
+  let cat=ed.cat, tipo=ed.tipo, to=ed.to||(cat==="banco"?"binance":"banco"), m2edited=!!m, pm=ed.pm||"";
   sheet(`<form class="sheet" id="f" novalidate>${head(m?"Editar movimiento":"Nuevo movimiento")}
     <div class="seg" role="group" aria-label="Tipo" style="align-self:flex-start">
       <button type="button" data-tipo="ahorro" aria-pressed="${tipo==="ahorro"}">Entra</button>
@@ -536,6 +547,15 @@ function openForm(m){
     <div class="row2">
       <div class="field"><label for="f-monto">Monto</label><input id="f-monto" inputmode="decimal" placeholder="0,00" value="${m?fmt(m.monto):""}" autocomplete="off"></div>
       <div class="field"><label for="f-moneda">Moneda</label><select id="f-moneda">${Object.entries(CUR).map(([k,l])=>`<option value="${k}" ${k===ed.moneda?"selected":""}>${l}</option>`).join("")}</select></div>
+    </div>
+    <div class="pm" id="f-pm" hidden>
+      <div class="pm-row">
+        <button type="button" class="chip" id="f-pmon" aria-pressed="${!!ed.pm}">Pago móvil</button>
+        <span class="seg" id="f-pmseg" role="group" aria-label="Comisión del pago móvil" ${ed.pm?"":"hidden"}>
+          <button type="button" data-com="con" aria-pressed="${ed.pm!=="sin"}">Con comisión</button>
+          <button type="button" data-com="sin" aria-pressed="${ed.pm==="sin"}">Sin comisión</button></span>
+      </div>
+      <span class="small num" id="f-pmtxt"></span>
     </div>
     <div class="preview num" id="f-prev"></div>
     <div class="mvrow" id="f-mv" ${tipo==="mover"?"":"hidden"}>
@@ -560,6 +580,14 @@ function openForm(m){
     $("#f-hint").textContent=HINT[tipo]||"";
     const n=parseNum($("#f-monto").value), cur=$("#f-moneda").value;
     $("#f-prev").textContent = n>0 && cur!=="USD" && tipo!=="mover" ? "≈ "+money(amtUSD(n,cur),"USD")+" con la tasa de hoy" : "";
+    const showPm = tipo==="retiro" && cur==="VES";
+    $("#f-pm").hidden=!showPm; $("#f-pmon").setAttribute("aria-pressed",String(!!pm)); $("#f-pmseg").hidden=!pm;
+    f.querySelectorAll("[data-com]").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.com===pm)));
+    const fee = pm==="con"&&n>0 ? pmFee(n) : 0;
+    $("#f-pmtxt").innerHTML = !showPm ? "" : !pm ? `<span class="muted">Márcalo si lo pagaste por pago móvil.</span>`
+      : !(n>0) ? `<span class="muted">${pm==="con"?"Se suma 0,3% de comisión (mínimo Bs 14).":"No se suma comisión."}</span>`
+      : pm==="con" ? `Comisión <b>${money(fee,"VES")}</b> · Sale en total <b>${money(n+fee,"VES")}</b>`
+      : `Sin comisión · Sale <b>${money(n,"VES")}</b>`;
     if(tipo==="mover" && !m2edited){ const v=n>0?convert(n,cur,$("#f-moneda2").value):0; $("#f-monto2").value = v>0 ? fmt(v) : ""; }
   };
   f.addEventListener("input",e=>{ if(e.target.id==="f-monto2") m2edited=true; if(e.target.id==="f-moneda2") m2edited=false; prev(); }); prev();
@@ -569,6 +597,8 @@ function openForm(m){
     if(b.dataset.cat){ cat=b.dataset.cat; f.querySelectorAll("[data-cat]").forEach(x=>x.setAttribute("aria-pressed",String(x===b))); if(!m){ $("#f-moneda").value=CATS[cat].def; m2edited=false; }
       if(to===cat){ to=Object.keys(CATS).find(k=>k!==cat&&k!=="efectivo")||Object.keys(CATS).find(k=>k!==cat); f.querySelectorAll("[data-to]").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.to===to))); $("#f-moneda2").value=CATS[to].def; m2edited=false; }
       prev(); }
+    if(b.id==="f-pmon"){ pm = pm ? "" : "con"; prev(); }
+    if(b.dataset.com){ pm=b.dataset.com; prev(); }
     if(b.dataset.to){ to=b.dataset.to; f.querySelectorAll("[data-to]").forEach(x=>x.setAttribute("aria-pressed",String(x===b))); $("#f-moneda2").value=CATS[to].def; m2edited=false; prev(); }
     if(b.dataset.tipo){ tipo=b.dataset.tipo; f.querySelectorAll("[data-tipo]").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
       $("#f-mv").hidden = tipo!=="mover"; $("#f-donde").textContent = tipo==="mover"?"Desde":"Dónde"; prev(); }
@@ -586,6 +616,7 @@ function openForm(m){
       if(!(monto2>0)) return err("Escribe cuánto llegó al otro bolsillo.");
       Object.assign(rec,{to, monto2, moneda2:$("#f-moneda2").value});
     }
+    if(tipo==="retiro" && rec.moneda==="VES" && pm){ rec.pm=pm; rec.comision = pm==="con" ? pmFee(monto) : 0; }
     /* La tasa del día se guarda solo si el movimiento es de hoy; para fechas pasadas no la conocemos */
     if(m && m.tasa && m.fecha===fecha) rec.tasa=m.tasa;
     else if(fecha===today()) rec.tasa={usd:state.tasas.usd, eur:state.tasas.eur, usdt:state.tasas.usdt};
@@ -620,6 +651,7 @@ function openGuide(){
       <li><b>Cada vez que ahorres, agrega solo lo nuevo.</b> Si guardas $50 más, anotas +$50, no el total. La app suma todo y el total sube solo. Ese ahorro aparece en el mes de su fecha.</li>
       <li><b>Control por día:</b> dentro de cada mes los movimientos salen agrupados por fecha, con lo que entró o salió ese día. En el Excel también hay una hoja «Resumen por día».</li>
       <li><b>Entra, Sale y Mover:</b> «Entra» es dinero que guardas y suma. «Sale» es dinero que sacas o gastas y resta. «Mover» es pasar dinero de un bolsillo a otro, así que el total no cambia.</li>
+      <li><b>Pago móvil:</b> en «Sale» con monto en Bs aparece «Pago móvil». Márcalo y elige con o sin comisión. Con comisión se suma 0,3% del monto, mínimo Bs 14 (por ejemplo, Bs 100.000 sale como Bs 100.300).</li>
       <li><b>Cuando saques dinero,</b> elige «Sale». Se resta del bolsillo y del total.</li>
       <li><b>¿Algo de un mes pasado?</b> Cambia la fecha en el formulario y queda en ese mes.</li>
       <li><b>Pasar dinero de un lugar a otro</b> (por ejemplo, de Banco a Binance): elige «Mover», indica desde dónde, hacia dónde y cuánto llegó. No cuenta como ahorro ni como retiro.</li>
@@ -681,6 +713,12 @@ async function importExcel(file){
       if(!to||to===cat||!(monto2>0)||!moneda2){ bad.push(fila); return; }
       Object.assign(rec,{to, monto2:Math.abs(monto2), moneda2});
     }
+    const pmTxt=norm(pick(r,["pago movil"]));
+    if(tipo==="retiro" && moneda==="VES" && pmTxt.startsWith("si")){
+      rec.pm = pmTxt.includes("sin") ? "sin" : "con";
+      const com=toNum(pick(r,["comision (bs)"]));
+      rec.comision = rec.pm==="sin" ? 0 : (com>=0 && String(pick(r,["comision (bs)"])).trim()!=="" ? Math.abs(com) : pmFee(rec.monto));
+    }
     const tu=toNum(pick(r,["tasa $ bcv ese dia"])), tb=toNum(pick(r,["tasa binance ese dia"])), te=toNum(pick(r,["tasa € bcv ese dia"]));
     if(tu>0) rec.tasa={usd:tu, usdt:tb>0?tb:tu, eur:te>0?te:tu*(state.tasas.eur/state.tasas.usd)};
     movs.push(rec);
@@ -715,16 +753,27 @@ const xfill = argb => ({type:"pattern",pattern:"solid",fgColor:{argb}});
 const xline = {bottom:{style:"thin",color:{argb:XC.line}}};
 const xbar = (p,len=20) => "█".repeat(Math.max(0,Math.round(Math.min(1,Math.max(0,p))*len)));
 
+/* Ancho de columna según el contenido: el encabezado puede bajar de línea, los datos no se cortan */
+function xWidth(c, rows){
+  const longestWord = Math.max(...String(c.h).split(/\s+/).map(w=>w.length));
+  let w = Math.max(longestWord+2, Math.ceil(String(c.h).length/2)+2);
+  rows.forEach(r=>{ const v=r[c.h]; if(v===""||v==null) return;
+    const len = typeof v==="number" ? fmt(v).length+6 : String(v).length+2;
+    w=Math.max(w,len); });
+  return Math.min(c.max||45, Math.max(c.min||9, w));
+}
 function xTable(ws, cols, rows, each){
-  ws.columns = cols.map(c=>({header:c.h, key:c.h, width:c.w}));
-  const h=ws.getRow(1); h.height=30;
-  h.eachCell(c=>{ c.fill=xfill(XC.ink); c.font={bold:true,color:{argb:XC.white}}; c.alignment={vertical:"middle",horizontal:"center",wrapText:true}; });
+  ws.columns = cols.map(c=>({header:c.h, key:c.h, width:xWidth(c,rows)}));
+  const h=ws.getRow(1); h.height=34;
+  h.eachCell(c=>{ c.fill=xfill(XC.ink); c.font={bold:true,color:{argb:XC.white}}; c.alignment={vertical:"middle",horizontal:"center",wrapText:true}; c.border={right:{style:"thin",color:{argb:"FF2A3531"}}}; });
   rows.forEach((r,i)=>{
-    const row=ws.addRow(r); row.height=18;
-    for(let ci=1; ci<=cols.length; ci++){ const cell=row.getCell(ci), c=cols[ci-1]; if(c.fmt) cell.numFmt=c.fmt; cell.border=xline; if(i%2) cell.fill=xfill(XC.bg); cell.alignment={vertical:"middle"}; }
+    const row=ws.addRow(r);
+    for(let ci=1; ci<=cols.length; ci++){ const cell=row.getCell(ci), c=cols[ci-1]; if(c.fmt) cell.numFmt=c.fmt; cell.border=xline; if(i%2) cell.fill=xfill(XC.bg);
+      cell.alignment={vertical:"middle", wrapText:true, horizontal: typeof r[c.h]==="number" ? "right" : "left"}; }
     if(each) each(row,i);
   });
   ws.views=[{state:"frozen",ySplit:1}];
+  ws.pageSetup={orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0};
   ws.autoFilter={from:{row:1,column:1},to:{row:1,column:cols.length}};
 }
 
@@ -746,12 +795,14 @@ async function exportExcel(){
 
   /* ---- Hoja 1: Resumen (dashboard) ---- */
   const d=wb.addWorksheet("Resumen",{views:[{showGridLines:false}],properties:{tabColor:{argb:XC.pos}}});
-  d.columns=[{width:2},{width:24},{width:18},{width:14},{width:26},{width:30}];
+  const details=Object.keys(CATS).map(k=>Object.entries(nat[k]).filter(([,v])=>Math.abs(v)>0.004).map(([cur,v])=>money(v,cur)).join(" · "));
+  const longName=Math.max(18,...closes.map(c=>monthLong(c.k).length+2),...(state.meta&&state.meta.nombre?[state.meta.nombre.length+2]:[]));
+  d.columns=[{width:2},{width:Math.min(30,longName)},{width:18},{width:16},{width:26},{width:Math.min(50,Math.max(34,...details.map(t=>t.length+2)))}];
   const band=(r,h)=>{ for(let c=2;c<=6;c++) d.getCell(r,c).fill=xfill(XC.ink); d.getRow(r).height=h; };
   band(1,40); d.mergeCells("B1:F1"); Object.assign(d.getCell("B1"),{value:"Mis Ahorros"}); d.getCell("B1").font={bold:true,size:22,color:{argb:XC.white}}; d.getCell("B1").alignment={vertical:"middle",indent:1};
   band(2,22); d.mergeCells("B2:F2");
   d.getCell("B2").value=`Generado el ${new Date().toLocaleDateString("es-VE",{day:"numeric",month:"long",year:"numeric"})} · Dólar BCV ${fmt(T.usd)} · Euro BCV ${fmt(T.eur)} · Binance ${fmt(T.usdt)} Bs`;
-  d.getCell("B2").font={size:10,color:{argb:XC.soft}}; d.getCell("B2").alignment={vertical:"top",indent:1};
+  d.getCell("B2").font={size:10,color:{argb:XC.soft}}; d.getCell("B2").alignment={vertical:"top",indent:1,wrapText:true}; d.getRow(2).height=30;
 
   // tarjetas de totales
   for(let r=4;r<=7;r++) for(let c=2;c<=6;c++){ d.getCell(r,c).fill=xfill(c<=4?XC.efectivo.t:XC.banco.t); }
@@ -759,9 +810,9 @@ async function exportExcel(){
   d.mergeCells("E4:F4"); d.getCell("E4").value="TOTAL EN BOLÍVARES"; d.getCell("E4").font={bold:true,size:9,color:{argb:XC.muted}};
   d.mergeCells("B5:D6"); const tv=d.getCell("B5"); tv.value=r2(total); tv.numFmt=XF.USD; tv.font={bold:true,size:26,color:{argb:XC.ink}}; tv.alignment={vertical:"middle",horizontal:"left"};
   d.mergeCells("E5:F6"); const bv=d.getCell("E5"); bv.value=hasBs?r2(bsTot):"Sin bolívares"; if(hasBs) bv.numFmt=XF.VES; bv.font={bold:true,size:hasBs?20:12,color:{argb:hasBs?XC.banco.c:XC.muted}}; bv.alignment={vertical:"middle",horizontal:"left"};
-  d.mergeCells("B7:D7"); d.getCell("B7").value=`≈ €${fmt(T.usd&&T.eur?total*T.usd/T.eur:0)} · Brecha BCV y Binance ${fmt(T.usd?(T.usdt/T.usd-1)*100:0,1)}%`; d.getCell("B7").font={size:9,color:{argb:XC.muted}};
+  d.mergeCells("B7:D7"); d.getCell("B7").value=`≈ €${fmt(T.usd&&T.eur?total*T.usd/T.eur:0)} · Brecha BCV y Binance ${fmt(T.usd?(T.usdt/T.usd-1)*100:0,1)}%`; d.getCell("B7").font={size:9,color:{argb:XC.muted}}; d.getCell("B7").alignment={wrapText:true,vertical:"top"};
   d.mergeCells("E7:F7"); d.getCell("E7").value=hasBs?`≈ ${money(amtUSD(bsTot,"VES"),"USD")} a tasa ${state.base==="usdt"?"Binance":"BCV"} · solo referencia${fx!==null&&Math.abs(fx)>=0.01?` · por la tasa ${fx<0?"perdieron":"ganaron"} ${money(Math.abs(fx),"USD")}`:""}`:"";
-  d.getCell("E7").font={size:9,color:{argb:XC.muted}}; d.getCell("E7").alignment={wrapText:true,vertical:"top"}; d.getRow(7).height=30;
+  d.getCell("E7").font={size:9,color:{argb:XC.muted}}; d.getCell("E7").alignment={wrapText:true,vertical:"top"}; d.getRow(7).height=36;
   d.pageSetup={orientation:"portrait",fitToPage:true,fitToWidth:1,fitToHeight:0,margins:{left:0.4,right:0.4,top:0.5,bottom:0.5,header:0.2,footer:0.2}};
   [5,6].forEach(r=>d.getRow(r).height=22);
 
@@ -774,12 +825,12 @@ async function exportExcel(){
   if(g&&g.monto>0){
     section("Meta de ahorro");
     const p=Math.max(0,total/g.monto), falta=g.monto-total;
-    d.getCell(r,2).value=g.nombre||"Meta"; d.getCell(r,2).font={bold:true};
+    d.getCell(r,2).value=g.nombre||"Meta"; d.getCell(r,2).font={bold:true}; d.getCell(r,2).alignment={wrapText:true,vertical:"middle"};
     d.getCell(r,3).value=r2(g.monto); d.getCell(r,3).numFmt=XF.USD;
     d.getCell(r,4).value=p; d.getCell(r,4).numFmt=XF.pct; d.getCell(r,4).font={bold:true,color:{argb:falta>0?XC.ink:XC.pos}};
     d.getCell(r,5).value=xbar(p); d.getCell(r,5).font={color:{argb:falta>0?XC.ink:XC.pos}};
     d.getCell(r,6).value=falta>0?`Faltan ${money(falta,"USD")}${g.fecha?" para "+monthLong(ym(g.fecha)).toLowerCase():""}`:`¡Cumplida! La superaste por ${money(-falta,"USD")}`;
-    d.getCell(r,6).font={size:10,color:{argb:falta>0?XC.muted:XC.pos}};
+    d.getCell(r,6).font={size:10,color:{argb:falta>0?XC.muted:XC.pos}}; d.getCell(r,6).alignment={wrapText:true,vertical:"middle"}; d.getRow(r).height=30;
     r+=2;
   }
 
@@ -793,8 +844,8 @@ async function exportExcel(){
     d.getCell(r,4).value=p; d.getCell(r,4).numFmt=XF.pct; d.getCell(r,4).font={color:{argb:col.c},bold:true};
     d.getCell(r,5).value=xbar(p); d.getCell(r,5).font={color:{argb:col.c}};
     d.getCell(r,6).value=Object.entries(nat[k]).filter(([,v])=>Math.abs(v)>0.004).map(([cur,v])=>money(v,cur)).join(" · ")||"Sin movimientos";
-    d.getCell(r,6).font={size:10,color:{argb:XC.muted}};
-    for(let cc=2;cc<=6;cc++) d.getCell(r,cc).border=xline; d.getRow(r).height=20; r++;
+    d.getCell(r,6).font={size:10,color:{argb:XC.muted}}; d.getCell(r,6).alignment={wrapText:true,vertical:"middle"};
+    for(let cc=2;cc<=6;cc++){ d.getCell(r,cc).border=xline; if(cc<6) d.getCell(r,cc).alignment={vertical:"middle"}; } d.getRow(r).height=22; r++;
   });
   d.getCell(r,2).value="Total"; d.getCell(r,2).font={bold:true};
   d.getCell(r,3).value=r2(total); d.getCell(r,3).numFmt=XF.USD; d.getCell(r,3).font={bold:true};
@@ -829,18 +880,21 @@ async function exportExcel(){
   const movRows=sorted.map(m=>({
     "Fecha": m.fecha, "Mes": monthLong(ym(m.fecha)), "Dónde": isMove(m)?`${CATS[m.cat].name} → ${CATS[m.to].name}`:CATS[m.cat].name,
     "Tipo": isMove(m)?"Mover":m.tipo==="retiro"?"Retiro":"Ahorro",
-    "Moneda": cn(m.moneda), "Monto": r2(signed(m)), "Llega": isMove(m)?r2(m.monto2):"", "Moneda que llega": isMove(m)?cn(m.moneda2):"",
+    "Moneda": cn(m.moneda), "Monto": r2(m.tipo==="retiro" ? -m.monto : signed(m)),
+    "Pago móvil": m.pm ? (m.pm==="sin" ? "Sí, sin comisión" : "Sí, con comisión") : "", "Comisión (Bs)": m.pm ? r2(m.comision||0) : "",
+    "Llega": isMove(m)?r2(m.monto2):"", "Moneda que llega": isMove(m)?cn(m.moneda2):"",
     "Tasa $ BCV ese día": m.tasa?m.tasa.usd:"", "Tasa € BCV ese día": m.tasa?m.tasa.eur:"", "Tasa Binance ese día": m.tasa?m.tasa.usdt:"",
     "En $ ese día": hasFx(m)?r2(thenUSD(m)):"", "Aprox. en $ hoy": r2(toUSD(m)), "Nota": m.nota||""
   }));
-  xTable(mv,[{h:"Fecha",w:12},{h:"Mes",w:18},{h:"Dónde",w:20},{h:"Tipo",w:10},{h:"Moneda",w:9},{h:"Monto",w:16},{h:"Llega",w:12},{h:"Moneda que llega",w:11},
-    {h:"Tasa $ BCV ese día",w:12,fmt:XF.num},{h:"Tasa € BCV ese día",w:12,fmt:XF.num},{h:"Tasa Binance ese día",w:12,fmt:XF.num},{h:"En $ ese día",w:13,fmt:XF.USD},{h:"Aprox. en $ hoy",w:14,fmt:XF.USD},{h:"Nota",w:30}],
+  xTable(mv,[{h:"Fecha",min:12},{h:"Mes"},{h:"Dónde"},{h:"Tipo"},{h:"Moneda"},{h:"Monto",min:14},{h:"Pago móvil"},{h:"Comisión (Bs)",fmt:XF.VES},{h:"Llega"},{h:"Moneda que llega"},
+    {h:"Tasa $ BCV ese día",fmt:XF.num},{h:"Tasa € BCV ese día",fmt:XF.num},{h:"Tasa Binance ese día",fmt:XF.num},{h:"En $ ese día",fmt:XF.USD},{h:"Aprox. en $ hoy",fmt:XF.USD},{h:"Nota",min:24,max:40}],
     movRows,(row,i)=>{
       const m=sorted[i], col=XC[isMove(m)?"mover":m.cat];
       const dn=row.getCell(3); dn.fill=xfill(col.t); dn.font={bold:true,color:{argb:col.c}};
       row.getCell(4).font={bold:true,color:{argb:isMove(m)?XC.muted:m.tipo==="retiro"?XC.neg:XC.pos}};
       row.getCell(6).numFmt=XF[m.moneda]||XF.num; row.getCell(6).font={bold:true};
-      if(isMove(m)) row.getCell(7).numFmt=XF[m.moneda2]||XF.num;
+      if(m.pm) row.getCell(7).font={color:{argb:XC.banco.c}};
+      if(isMove(m)) row.getCell(9).numFmt=XF[m.moneda2]||XF.num;
     });
 
   /* ---- Hoja 3: Resumen por mes ---- */
