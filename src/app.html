@@ -106,6 +106,12 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .mstat .k{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
 .mstat .v{font-size:16px;font-weight:600;white-space:nowrap}
 .pos{color:var(--cash)} .neg{color:var(--neg)}
+.mstat{min-width:0}
+@media (max-width:480px){
+  .mstats{grid-template-columns:1fr;gap:4px}
+  .mstat{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+}
+.day span:last-child{text-align:right}
 .list{display:flex;flex-direction:column}
 .mov{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px 0;border-top:1px solid var(--line)}
 .mov:first-child{border-top:0}
@@ -479,7 +485,7 @@ function renderMonth(){
   $("#list").innerHTML = list.map(m=>{
     let hdr="";
     if(m.fecha!==lastDay){ lastDay=m.fecha; const n=dayNet[m.fecha];
-      hdr=`<div class="day"><span>${cap(new Date(m.fecha+"T12:00").toLocaleDateString("es-VE",{weekday:"long",day:"numeric",month:"long"}))}</span><span class="num ${n<0?"neg":"pos"}">${n<0?"":"+"}${money(n,"USD")} ese día</span></div>`; }
+      hdr=`<div class="day"><span>${cap(new Date(m.fecha+"T12:00").toLocaleDateString("es-VE",{weekday:"long",day:"numeric",month:"long"}))}</span><span class="num ${n<0?"neg":"pos"}">${n<0?"":"+"}${money(n,"USD")}</span></div>`; }
     const c=CATS[m.cat]; const del = pendingDelete===m.id, mv=isMove(m);
     const route = mv ? `${c.name} → ${CATS[m.to].name}` : c.name;
     let val="";
