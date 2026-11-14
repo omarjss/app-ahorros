@@ -692,6 +692,7 @@ function openGoal(){
     save(); closeSheet(); render(); toast("Meta guardada");
   });
 }
+function shortMonth(k, bw){ const [y,m]=k.split("-"); const t=new Date(+y,+m-1,1).toLocaleDateString("es-VE",{month:"short"}).replace(".",""); return bw>=24 ? t.slice(0,3) : t.charAt(0).toUpperCase(); }
 function renderChart(){
   const svg=$("#chart"); const all=monthlyClose(); const cols=all.slice(-12);
   const W = Math.max(280, svg.clientWidth || 500), H = 160, padB=20, padT=18;
@@ -702,7 +703,7 @@ function renderChart(){
     let y=H-padB; const x=i*bw+(bw-w)/2, on=c.k===selMonth;
     ["efectivo","binance","banco"].forEach(cat=>{ const h=Math.max(0,c.v[cat])/max*(H-padB-padT); if(h>0){ y-=h; out+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${CATS[cat].c}" opacity="${on?1:.4}"/>`; } });
     out+=`<rect x="${i*bw}" y="0" width="${bw}" height="${H}" fill="transparent" data-m="${c.k}" style="cursor:pointer"/>`;
-    out+=`<text x="${x+w/2}" y="${H-5}" text-anchor="middle" style="${on?"fill:var(--ink);font-weight:600":""}">${monthName(c.k)}</text>`;
+    out+=`<text x="${x+w/2}" y="${H-5}" text-anchor="middle" style="${on?"fill:var(--ink);font-weight:600":""}">${bw>=52?monthName(c.k):shortMonth(c.k, bw)}</text>`;
     if(on){ const tot=c.v.efectivo+c.v.binance+c.v.banco; out+=`<text x="${Math.min(W-28,Math.max(28,x+w/2))}" y="${Math.max(12,y-5)}" text-anchor="middle" style="fill:var(--ink);font-weight:600;font-size:11px">$${fmt(tot,0)}</text>`; }
   });
   svg.setAttribute("viewBox",`0 0 ${W} ${H}`); svg.innerHTML=out;
