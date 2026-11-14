@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#14201c">
+<meta name="description" content="Control de ahorros en efectivo, Binance y banco, con tasas BCV y Binance en vivo.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mis Ahorros">
+<style>:root{padding-top:env(safe-area-inset-top,0px)}body{margin:0}[hidden]{display:none!important}</style>
+<title>Mis Ahorros</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: teléfono = una columna con barra de acción fija abajo; computadora = resumen a la izquierda, meses a la derecha. */
+:root{
+  --bg:#f3f5f4; --surface:#ffffff; --ink:#14201c; --muted:#5d6b66; --line:#dfe5e2;
+  --cash:#1f8a5b; --bnb:#b57d00; --bank:#2f5fd0; --neg:#c2410c; --accent:#14201c; --accent-ink:#ffffff;
+  --chip:#e8edeb; --shadow:0 1px 2px rgb(20 32 28 / .06);
+  --display:"Bricolage Grotesque", "Inter", system-ui, sans-serif;
+  --body:"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --r:16px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1513; --surface:#18201d; --ink:#e7eeea; --muted:#94a39d; --line:#2a3531;
+  --cash:#3fbf86; --bnb:#f0b90b; --bank:#7fa2ff; --neg:#fb8a5a; --accent:#e7eeea; --accent-ink:#0f1513; --chip:#222c28; --shadow:none; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1513; --surface:#18201d; --ink:#e7eeea; --muted:#94a39d; --line:#2a3531;
+  --cash:#3fbf86; --bnb:#f0b90b; --bank:#7fa2ff; --neg:#fb8a5a; --accent:#e7eeea; --accent-ink:#0f1513; --chip:#222c28; --shadow:none; color-scheme:dark}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:14px calc(env(safe-area-inset-bottom,0px) + 96px)}
+h1,h2{font-family:var(--display);margin:0;text-wrap:balance}
+h2{font-size:17px;font-weight:600}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+:focus-visible{outline:2px solid var(--bank);outline-offset:2px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+
+.app{max-width:1100px;margin:0 auto;display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+@media (min-width:900px){
+  .app{grid-template-columns:minmax(0,5fr) minmax(0,6fr);align-items:start;gap:24px}
+  .top{grid-column:1 / -1}
+  .col.right{position:sticky;top:calc(env(safe-area-inset-top,0px) + 14px)}
+  body{padding-bottom:40px}
+  .actionbar{display:none}
+}
+
+/* encabezado */
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.top h1{font-size:24px;font-weight:800;letter-spacing:-.01em}
+.tools{display:flex;gap:6px;flex-wrap:wrap}
+.tbtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center}
+.tbtn.solid{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.tbtn.desk{display:none}
+@media (min-width:900px){.tbtn.desk{display:inline-flex}}
+
+/* tasas */
+.rates{padding:12px;display:flex;flex-direction:column;gap:10px}
+.rgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.rate{min-width:0;padding:2px 4px}
+.rate + .rate{border-left:1px solid var(--line);padding-left:10px}
+.rate .lbl{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600;white-space:nowrap}
+.rate .val{font-size:clamp(16px,4.6vw,21px);font-weight:600;white-space:nowrap}
+.rate .unit{font-size:11px;color:var(--muted)}
+.rate input{width:100%;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--bg);font-size:16px}
+.rfoot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:8px}
+.linkbtn{background:none;border:0;padding:4px 0;color:var(--bank);font-weight:600;font-size:13px;text-decoration:none}
+.status{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:0 0 auto}
+.dot.ok{background:var(--cash)} .dot.warn{background:var(--bnb)}
+
+/* total */
+.hero{padding:18px;display:flex;flex-direction:column;gap:6px}
+.hero .row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.big{font-family:var(--display);font-weight:800;font-size:clamp(36px,10vw,52px);line-height:1.05;letter-spacing:-.02em}
+.subs{display:flex;gap:6px 14px;flex-wrap:wrap;color:var(--muted);font-size:13px}
+.seg{display:inline-flex;background:var(--chip);border-radius:999px;padding:3px;gap:2px}
+.seg button{border:0;background:none;padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / .15)}
+.bar{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--chip);margin-top:6px;gap:2px}
+.bar span{display:block;height:100%}
+
+/* bolsillos */
+.pockets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.pocket{padding:12px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pocket .name{font-size:12.5px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:6px}
+.pocket .name i{width:9px;height:9px;border-radius:3px;background:var(--c);display:inline-block}
+.pocket .usd{font-size:clamp(16px,4.6vw,20px);font-weight:600;white-space:nowrap}
+.pocket .nat{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.pocket .pct{font-size:12px;font-weight:600;color:var(--c)}
+@media (max-width:420px){
+  .pockets{grid-template-columns:1fr;gap:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+  .pocket{border:0;border-radius:0;box-shadow:none;display:grid;grid-template-columns:1fr auto;grid-template-areas:"name usd" "nat pct";padding:12px 14px}
+  .pocket + .pocket{border-top:1px solid var(--line)}
+  .pocket .name{grid-area:name;font-size:14px;color:var(--ink)} .pocket .usd{grid-area:usd;text-align:right}
+  .pocket .nat{grid-area:nat} .pocket .pct{grid-area:pct;text-align:right}
+}
+
+/* meses */
+.panel{padding:16px;display:flex;flex-direction:column;gap:14px}
+.months{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+.months button{flex:0 0 auto;border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:500}
+.months button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.chart{width:100%;height:160px;display:block}
+.chart text{fill:var(--muted);font-size:10px;font-family:var(--body)}
+.mstats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;background:var(--bg);border-radius:12px;padding:10px 12px}
+.mstat .k{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.mstat .v{font-size:16px;font-weight:600;white-space:nowrap}
+.pos{color:var(--cash)} .neg{color:var(--neg)}
+.list{display:flex;flex-direction:column}
+.mov{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px 0;border-top:1px solid var(--line)}
+.mov:first-child{border-top:0}
+.mov .sw{width:10px;height:10px;border-radius:3px;background:var(--c)}
+.mov .t b{font-weight:500;display:block;overflow-wrap:anywhere}
+.mov .amt{text-align:right;font-weight:600;white-space:nowrap}
+.mov .act{display:flex;gap:12px;justify-content:flex-end}
+.mov .act button{background:none;border:0;padding:4px 0;font-size:12.5px;color:var(--muted)}
+.mov .act button.danger{color:var(--neg);font-weight:600}
+.empty{padding:18px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:12px;display:flex;flex-direction:column;gap:10px;align-items:center}
+.foot{display:flex;flex-direction:column;gap:6px;padding:0 4px}
+.foot .links{display:flex;gap:14px;flex-wrap:wrap}
+
+/* barra inferior (teléfono) */
+.actionbar{position:fixed;left:0;right:0;bottom:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 10px) max(16px,env(safe-area-inset-left,0px));display:flex;gap:8px}
+.actionbar .primary{flex:1}
+.primary{background:var(--accent);color:var(--accent-ink);border:0;border-radius:12px;padding:13px 16px;font-weight:600;font-size:15px}
+@media (min-width:900px){.actionbar{display:none}}
+.day{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:12px 0 4px;border-top:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--muted)}
+.day:first-child{border-top:0;padding-top:0}
+.day span:first-child{color:var(--ink)}
+.day + .mov{border-top:0}
+.ghost{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-weight:600}
+
+/* hojas */
+.sheet-bg{position:fixed;inset:0;background:rgb(0 0 0 / .45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+@media (min-width:700px){.sheet-bg{align-items:center}.sheet{border-radius:18px!important}}
+.sheet{background:var(--surface);width:100%;max-width:520px;border-radius:18px 18px 0 0;
+  padding:18px max(18px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 18px) max(18px,env(safe-area-inset-left,0px));
+  display:flex;flex-direction:column;gap:12px;max-height:92vh;overflow-y:auto}
+.sheet-h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.x{background:var(--chip);border:0;border-radius:999px;width:32px;height:32px;font-size:18px;line-height:1}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field label{font-size:12px;font-weight:600;color:var(--muted)}
+.field input,.field select{border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:var(--bg);font-size:16px;width:100%;min-width:0}
+.row2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.cats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.cats button{border:1.5px solid var(--line);background:var(--bg);border-radius:10px;padding:11px 4px;font-weight:600;font-size:14px}
+.cats button[aria-pressed="true"]{border-color:var(--c);color:var(--c);background:var(--surface)}
+.preview{font-size:13px;color:var(--muted);min-height:18px}
+.err{color:var(--neg);font-size:13px}
+textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);font-size:13px}
+.guide ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px}
+.guide li b{font-weight:600}
+.guide p{margin:0}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 86px);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:13px;z-index:30;max-width:calc(100% - 32px);text-align:center}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <h1>Mis Ahorros</h1>
+    <div class="tools">
+      <button class="tbtn" id="install" type="button" hidden>Instalar app</button>
+      <button class="tbtn" id="excel" type="button">Excel</button>
+      <button class="tbtn" id="guide" type="button">Guía</button>
+      <button class="tbtn solid desk" id="add2" type="button">+ Agregar</button>
+    </div>
+  </header>
+
+  <div class="col left">
+    <section class="card rates" aria-label="Tasas del día">
+      <div class="rgrid" id="rates"></div>
+      <div class="rfoot">
+        <span class="status small muted"><span class="dot" id="rdot"></span><span id="rstatus">Cargando tasas…</span></span>
+        <span style="display:flex;gap:14px">
+          <button class="linkbtn" id="refresh" type="button">Actualizar</button>
+          <button class="linkbtn" id="editRates" type="button">Editar</button>
+        </span>
+      </div>
+    </section>
+
+    <section class="card hero" aria-label="Total ahorrado">
+      <div class="row">
+        <span class="eyebrow">Total ahorrado</span>
+        <span class="seg" role="group" aria-label="Convertir bolívares con">
+          <button type="button" data-base="bcv">Bs a BCV</button>
+          <button type="button" data-base="usdt">Bs a Binance</button>
+        </span>
+      </div>
+      <div class="big num" id="total">$0,00</div>
+      <div class="subs num" id="totalSub"></div>
+      <div class="bar" id="mix" aria-hidden="true"></div>
+    </section>
+
+    <section class="pockets" id="pockets" aria-label="Por tipo de ahorro"></section>
+
+    <section class="foot small muted">
+      <span id="syncNote"></span>
+      <span class="links">
+        <button class="linkbtn" id="backup" type="button">Respaldo</button>
+        <a class="linkbtn" href="https://www.bcv.org.ve/" target="_blank" rel="noopener">Ver BCV</a>
+        <a class="linkbtn" href="https://p2p.binance.com/es/trade/all-payments/USDT?fiat=VES" target="_blank" rel="noopener">Ver Binance P2P</a>
+      </span>
+    </section>
+  </div>
+
+  <div class="col right">
+    <section class="card panel" aria-label="Por mes">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <h2>Por mes</h2><span class="small muted">Saldo al cierre de cada mes, en $</span>
+      </div>
+      <svg class="chart" id="chart" role="img" aria-label="Saldo total al cierre de cada mes"></svg>
+      <div class="months" id="months"></div>
+      <div class="mstats" id="mstats"></div>
+      <div class="list" id="list"></div>
+    </section>
+  </div>
+</div>
+
+<div class="actionbar">
+  <button class="primary" id="add" type="button">+ Agregar movimiento</button>
+</div>
+<div id="sheetHost"></div>
+<div id="toastHost"></div>
+
+<script>
+(function(){
+const CATS = {
+  efectivo:{name:"Efectivo", c:"var(--cash)", def:"USD"},
+  binance:{name:"Binance", c:"var(--bnb)", def:"USDT"},
+  banco:{name:"Banco", c:"var(--bank)", def:"VES"}
+};
+const CUR = {USD:"$ (dólares)", USDT:"USDT", EUR:"€ (euros)", VES:"Bs (bolívares)"};
+const LS = "mis-ahorros-v1";
+const IN_CLAUDE = !!(window.claude && window.claude.use);
+const $ = s => document.querySelector(s);
+const fmt = (n, d=2) => new Intl.NumberFormat("es-VE",{minimumFractionDigits:d,maximumFractionDigits:d}).format(n||0);
+const money = (n, cur) => { const s=n<0?"−":""; n=Math.abs(n); return cur==="USD" ? s+"$"+fmt(n) : cur==="EUR" ? s+"€"+fmt(n) : cur==="VES" ? s+"Bs "+fmt(n) : s+fmt(n)+" USDT"; };
+const ym = d => d.slice(0,7);
+const cap = t => t.charAt(0).toUpperCase()+t.slice(1);
+const monthName = k => { const [y,m]=k.split("-"); return new Date(+y, +m-1, 1).toLocaleDateString("es-VE",{month:"short", year:"2-digit"}); };
+const monthLong = k => { const [y,m]=k.split("-"); return cap(new Date(+y, +m-1, 1).toLocaleDateString("es-VE",{month:"long", year:"numeric"})); };
+const today = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+const parseNum = s => { s=String(s||"").trim().replace(/\s/g,"").replace(/[$€]|Bs|USDT/gi,""); if(s.includes(",")) s=s.replace(/\./g,"").replace(",","."); else if(/^\d{1,3}(\.\d{3})+$/.test(s)) s=s.replace(/\./g,""); const n=parseFloat(s); return isFinite(n)?n:NaN; };
+const uid = () => Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+const esc = s => String(s||"").replace(/[&<>"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+
+let state = {movs:[], tasas:{usd:911.62, eur:1009.34, usdt:1071.01, fecha:"2026-11-14T12:00:00Z", origen:"referencia"}, base:"bcv"};
+let selMonth = ym(today());
+let editingRates = false, pendingDelete = null, dbRef = null;
+
+/* ---------- guardado ---------- */
+function loadLocal(){ try{ const raw=localStorage.getItem(LS); if(raw){ const s=JSON.parse(raw); if(s && Array.isArray(s.movs)) state=Object.assign(state,s); } }catch(e){} }
+function saveLocal(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
+let writing=false, dirty=false, timer=null;
+function save(){ saveLocal(); if(!dbRef) return; dirty=true; clearTimeout(timer); timer=setTimeout(flush, 500); }
+async function flush(){
+  if(writing||!dirty||!dbRef) return;
+  writing=true; dirty=false;
+  try{ await dbRef.set(JSON.parse(JSON.stringify(state))); setSync("cloud"); }
+  catch(e){ setSync("local"); }
+  writing=false; if(dirty) flush();
+}
+function setSync(k){
+  $("#syncNote").textContent = k==="cloud" ? "Tus datos se guardan en tu cuenta de Claude." :
+    "Tus datos se guardan en este teléfono o navegador. Usa Respaldo para pasarlos a otro equipo.";
+}
+async function connectCloud(){
+  setSync("local");
+  if(!IN_CLAUDE) return;
+  try{
+    const [db,user] = await Promise.all([claude.use("db"), claude.use("user")]);
+    if(!db || !user) return;
+    const id = await user.id(); if(!id) return;
+    dbRef = db.collection("data/users/"+id).doc("ahorros");
+    let first = true;
+    const t = setTimeout(()=>{ first=false; }, 10000);
+    dbRef.onSnapshot(snap=>{
+      if(snap.metadata && snap.metadata.hasPendingWrites) return;
+      const wasFirst = first;
+      if(!snap.metadata || !snap.metadata.fromCache){ first=false; clearTimeout(t); }
+      if(snap.exists){
+        const d = JSON.parse(JSON.stringify(snap.data()));
+        if(Array.isArray(d.movs)){ state = Object.assign({movs:[], tasas:state.tasas, base:"bcv"}, d); saveLocal(); render(); }
+        setSync("cloud");
+      } else if(wasFirst && !first){
+        if(state.movs.length){ dirty=true; flush(); } else setSync("cloud");
+      }
+    }, ()=>{ clearTimeout(t); dbRef=null; setSync("local"); });
+  }catch(e){}
+}
+
+/* ---------- tasas ---------- */
+async function getJSON(url){
+  const ac = new AbortController(); const t=setTimeout(()=>ac.abort(), 8000);
+  try{ const r = await fetch(url,{signal:ac.signal, cache:"no-store"}); if(!r.ok) throw new Error(r.status); return await r.json(); }
+  finally{ clearTimeout(t); }
+}
+let fetching=false;
+async function fetchRates(manual){
+  if(fetching) return; fetching=true;
+  setRStatus("Buscando tasas…","");
+  const out = {};
+  await Promise.allSettled([
+    getJSON("https://ve.dolarapi.com/v1/dolares/oficial").then(j=>{ if(j.promedio) out.usd=+j.promedio; }),
+    getJSON("https://ve.dolarapi.com/v1/euros/oficial").then(j=>{ if(j.promedio) out.eur=+j.promedio; }),
+    getJSON("https://criptoya.com/api/binancep2p/USDT/VES/1").then(j=>{ const a=+j.ask, b=+j.bid; out.usdt = a&&b ? (a+b)/2 : (a||b); })
+      .catch(()=>getJSON("https://ve.dolarapi.com/v1/dolares/paralelo").then(j=>{ if(j.promedio) out.usdt=+j.promedio; }))
+  ]);
+  fetching=false;
+  const got = ["usd","eur","usdt"].filter(k=>out[k]>0);
+  if(got.length){
+    let changed=false;
+    got.forEach(k=>{ const v=Math.round(out[k]*100)/100; if(state.tasas[k]!==v){ state.tasas[k]=v; changed=true; } });
+    state.tasas.fecha = new Date().toISOString(); state.tasas.origen="auto";
+    if(changed) save(); else saveLocal();
+    render();
+    setRStatus(got.length===3 ? "En vivo · "+hora(state.tasas.fecha) : "Algunas tasas no cargaron; edítalas", got.length===3?"ok":"warn");
+  } else {
+    setRStatus(IN_CLAUDE ? "Tasas del "+fechaCorta(state.tasas.fecha)+" · aquí se editan a mano" : "Sin conexión · tasas del "+fechaCorta(state.tasas.fecha), "warn");
+    if(manual && IN_CLAUDE) toast("Dentro de Claude las tasas no se actualizan solas. Toca Editar.");
+  }
+}
+const hora = iso => iso ? new Date(iso).toLocaleTimeString("es-VE",{hour:"numeric",minute:"2-digit"}) : "";
+const fechaCorta = iso => iso ? new Date(iso).toLocaleDateString("es-VE",{day:"numeric",month:"short"}) : "—";
+function setRStatus(t,k){ $("#rstatus").textContent=t; $("#rdot").className="dot "+(k||""); }
+function renderRates(){
+  const T = state.tasas;
+  const items = [["usd","Dólar BCV"],["eur","Euro BCV"],["usdt","Binance"]];
+  $("#rates").innerHTML = items.map(([k,l])=>`<div class="rate"><div class="lbl">${l}</div>${
+    editingRates ? `<input id="rate-${k}" inputmode="decimal" aria-label="${l} en bolívares" value="${T[k]?fmt(T[k]):""}">`
+                 : `<div class="val num">${T[k]?fmt(T[k]):"—"}</div><div class="unit">Bs por ${k==="eur"?"€":k==="usdt"?"USDT":"$"}</div>`}</div>`).join("");
+  $("#editRates").textContent = editingRates ? "Guardar" : "Editar";
+}
+
+/* ---------- cálculos ---------- */
+function rateVES(){ const T=state.tasas; return state.base==="usdt" ? (T.usdt||T.usd) : T.usd; }
+function amtUSD(monto, moneda){
+  const T=state.tasas;
+  if(moneda==="USD"||moneda==="USDT") return monto;
+  if(moneda==="EUR") return T.usd ? monto*T.eur/T.usd : 0;
+  const r=rateVES(); return r ? monto/r : 0;
+}
+const signed = m => m.monto*(m.tipo==="retiro"?-1:1);
+const toUSD = m => amtUSD(signed(m), m.moneda);
+function months(){ const set = new Set(state.movs.map(m=>ym(m.fecha))); set.add(ym(today())); return [...set].sort(); }
+function monthlyClose(){
+  const run={efectivo:0,binance:0,banco:0}, out=[];
+  const sorted=[...state.movs].sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  months().forEach(k=>{ let net=0; sorted.forEach(m=>{ if(ym(m.fecha)===k){ const u=toUSD(m); run[m.cat]+=u; net+=u; } }); out.push({k, v:{...run}, net}); });
+  return out;
+}
+
+/* ---------- render ---------- */
+function render(){
+  renderRates();
+  document.querySelectorAll("[data-base]").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.base===state.base)));
+  const byCat = {efectivo:0,binance:0,banco:0}, nat = {efectivo:{},binance:{},banco:{}};
+  state.movs.forEach(m=>{ byCat[m.cat]+=toUSD(m); nat[m.cat][m.moneda]=(nat[m.cat][m.moneda]||0)+signed(m); });
+  const total = byCat.efectivo+byCat.binance+byCat.banco, T=state.tasas;
+  $("#total").textContent = money(total,"USD");
+  $("#totalSub").innerHTML = [
+    T.usd ? `<span>≈ Bs ${fmt(total*T.usd)} a BCV</span>` : "",
+    T.eur ? `<span>≈ €${fmt(total*T.usd/T.eur)}</span>` : "",
+    T.usd&&T.usdt ? `<span>Brecha BCV y Binance: ${fmt((T.usdt/T.usd-1)*100,1)}%</span>` : ""
+  ].join("");
+  const pos = Math.max(total,0.0001);
+  $("#mix").innerHTML = Object.keys(CATS).map(k=> byCat[k]>0 ? `<span style="width:${byCat[k]/pos*100}%;background:${CATS[k].c}"></span>` : "").join("");
+  $("#pockets").innerHTML = Object.entries(CATS).map(([k,c])=>{
+    const n = Object.entries(nat[k]).filter(([,v])=>Math.abs(v)>0.004).map(([cur,v])=>money(v,cur)).join(" · ") || "Sin movimientos";
+    return `<div class="card pocket" style="--c:${c.c}"><span class="name"><i></i>${c.name}</span><span class="usd num">${money(byCat[k],"USD")}</span><span class="nat num">${n}</span><span class="pct num">${total>0?fmt(byCat[k]/total*100,0)+"%":"—"}</span></div>`;
+  }).join("");
+  renderChart(); renderMonth();
+}
+function renderChart(){
+  const svg=$("#chart"); const all=monthlyClose(); const cols=all.slice(-12);
+  const W = Math.max(280, svg.clientWidth || 500), H = 160, padB=20, padT=18;
+  const max = Math.max(1, ...cols.map(c=>Math.max(0,c.v.efectivo)+Math.max(0,c.v.binance)+Math.max(0,c.v.banco)));
+  const bw = W/cols.length, w=Math.min(36, bw*0.6);
+  let out = `<line x1="0" x2="${W}" y1="${H-padB}" y2="${H-padB}" stroke="var(--line)"/>`;
+  cols.forEach((c,i)=>{
+    let y=H-padB; const x=i*bw+(bw-w)/2, on=c.k===selMonth;
+    ["efectivo","binance","banco"].forEach(cat=>{ const h=Math.max(0,c.v[cat])/max*(H-padB-padT); if(h>0){ y-=h; out+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${CATS[cat].c}" opacity="${on?1:.4}"/>`; } });
+    out+=`<rect x="${i*bw}" y="0" width="${bw}" height="${H}" fill="transparent" data-m="${c.k}" style="cursor:pointer"/>`;
+    out+=`<text x="${x+w/2}" y="${H-5}" text-anchor="middle" style="${on?"fill:var(--ink);font-weight:600":""}">${monthName(c.k)}</text>`;
+    if(on){ const tot=c.v.efectivo+c.v.binance+c.v.banco; out+=`<text x="${Math.min(W-28,Math.max(28,x+w/2))}" y="${Math.max(12,y-5)}" text-anchor="middle" style="fill:var(--ink);font-weight:600;font-size:11px">$${fmt(tot,0)}</text>`; }
+  });
+  svg.setAttribute("viewBox",`0 0 ${W} ${H}`); svg.innerHTML=out;
+}
+function renderMonth(){
+  const ms = months().reverse();
+  $("#months").innerHTML = ms.map(k=>`<button type="button" data-m="${k}" aria-pressed="${k===selMonth}">${monthLong(k)}</button>`).join("");
+  const list = state.movs.filter(m=>ym(m.fecha)===selMonth).sort((a,b)=>b.fecha.localeCompare(a.fecha)||(b.t||0)-(a.t||0));
+  let ah=0, re=0; list.forEach(m=>{ const u=Math.abs(toUSD(m)); if(m.tipo==="retiro") re+=u; else ah+=u; });
+  $("#mstats").innerHTML = `<div class="mstat"><div class="k">Ahorré</div><div class="v num pos">${money(ah,"USD")}</div></div>
+    <div class="mstat"><div class="k">Retiré</div><div class="v num neg">${money(re,"USD")}</div></div>
+    <div class="mstat"><div class="k">Neto</div><div class="v num ${ah-re<0?"neg":""}">${money(ah-re,"USD")}</div></div>`;
+  if(!state.movs.length){
+    $("#list").innerHTML = `<div class="empty"><b style="color:var(--ink)">Aún no hay movimientos</b><span>Toca <b>+ Agregar</b> y anota lo que tienes hoy en efectivo, Binance y banco.</span><button class="ghost" type="button" id="demo">Ver con datos de ejemplo</button></div>`;
+    return;
+  }
+  if(!list.length){ $("#list").innerHTML = `<div class="empty">Sin movimientos en ${monthLong(selMonth)}.</div>`; return; }
+  const dayNet={}; list.forEach(m=>dayNet[m.fecha]=(dayNet[m.fecha]||0)+toUSD(m));
+  let lastDay="";
+  $("#list").innerHTML = list.map(m=>{
+    let hdr="";
+    if(m.fecha!==lastDay){ lastDay=m.fecha; const n=dayNet[m.fecha];
+      hdr=`<div class="day"><span>${cap(new Date(m.fecha+"T12:00").toLocaleDateString("es-VE",{weekday:"long",day:"numeric",month:"long"}))}</span><span class="num ${n<0?"neg":"pos"}">${n<0?"":"+"}${money(n,"USD")} ese día</span></div>`; }
+    const c=CATS[m.cat]; const del = pendingDelete===m.id;
+    return hdr+`<div class="mov" style="--c:${c.c}"><span class="sw"></span>
+      <div class="t"><b>${esc(m.nota)||(m.tipo==="retiro"?"Retiro":"Ahorro")}</b><span class="small muted">${c.name}${m.demo?" · ejemplo":""}</span></div>
+      <div><div class="amt num ${m.tipo==="retiro"?"neg":""}">${m.tipo==="retiro"?"":"+"}${money(signed(m),m.moneda)}</div>
+      <div class="act">${del?`<button type="button" data-cancel>Cancelar</button><button type="button" class="danger" data-del="${m.id}">Sí, borrar</button>`
+        :`<button type="button" data-edit="${m.id}">Editar</button><button type="button" data-ask="${m.id}">Borrar</button>`}</div></div></div>`;
+  }).join("");
+}
+
+/* ---------- hojas ---------- */
+function sheet(html){ $("#sheetHost").innerHTML = `<div class="sheet-bg" id="bg">${html}</div>`; $("#bg").addEventListener("click",e=>{ if(e.target.id==="bg"||e.target.closest("[data-close]")) closeSheet(); }); }
+function closeSheet(){ $("#sheetHost").innerHTML=""; }
+const head = t => `<div class="sheet-h"><h2>${t}</h2><button type="button" class="x" data-close aria-label="Cerrar">×</button></div>`;
+
+function openForm(m){
+  const ed = m || {cat:"efectivo", tipo:"ahorro", moneda:"USD", fecha:today(), monto:"", nota:""};
+  let cat=ed.cat, tipo=ed.tipo;
+  sheet(`<form class="sheet" id="f" novalidate>${head(m?"Editar movimiento":"Nuevo movimiento")}
+    <div class="cats" role="group" aria-label="Dónde está el dinero">${Object.entries(CATS).map(([k,c])=>`<button type="button" data-cat="${k}" style="--c:${c.c}" aria-pressed="${k===cat}">${c.name}</button>`).join("")}</div>
+    <div class="seg" role="group" aria-label="Tipo" style="align-self:flex-start">
+      <button type="button" data-tipo="ahorro" aria-pressed="${tipo!=="retiro"}">Entra (ahorro)</button>
+      <button type="button" data-tipo="retiro" aria-pressed="${tipo==="retiro"}">Sale (retiro)</button></div>
+    <div class="row2">
+      <div class="field"><label for="f-monto">Monto</label><input id="f-monto" inputmode="decimal" placeholder="0,00" value="${m?fmt(m.monto):""}" autocomplete="off"></div>
+      <div class="field"><label for="f-moneda">Moneda</label><select id="f-moneda">${Object.entries(CUR).map(([k,l])=>`<option value="${k}" ${k===ed.moneda?"selected":""}>${l}</option>`).join("")}</select></div>
+    </div>
+    <div class="preview num" id="f-prev"></div>
+    <div class="row2">
+      <div class="field"><label for="f-fecha">Fecha</label><input id="f-fecha" type="date" value="${ed.fecha}" max="${today()}"></div>
+      <div class="field"><label for="f-nota">Nota (opcional)</label><input id="f-nota" maxlength="60" placeholder="Quincena, venta…" value="${esc(ed.nota)}"></div>
+    </div>
+    <div class="err" id="f-err" hidden></div>
+    <button class="primary" type="submit">${m?"Guardar cambios":"Agregar"}</button>
+  </form>`);
+  const f=$("#f");
+  const prev=()=>{ const n=parseNum($("#f-monto").value), cur=$("#f-moneda").value; $("#f-prev").textContent = n>0 && cur!=="USD" ? "≈ "+money(amtUSD(n,cur),"USD")+" con la tasa de hoy" : ""; };
+  f.addEventListener("input",prev); prev();
+  f.addEventListener("click",e=>{
+    const b=e.target.closest("button"); if(!b) return;
+    if(b.dataset.cat){ cat=b.dataset.cat; f.querySelectorAll("[data-cat]").forEach(x=>x.setAttribute("aria-pressed",String(x===b))); if(!m){ $("#f-moneda").value=CATS[cat].def; prev(); } }
+    if(b.dataset.tipo){ tipo=b.dataset.tipo; f.querySelectorAll("[data-tipo]").forEach(x=>x.setAttribute("aria-pressed",String(x===b))); }
+  });
+  f.addEventListener("submit",e=>{
+    e.preventDefault();
+    const monto=parseNum($("#f-monto").value), fecha=$("#f-fecha").value;
+    const err=t=>{ const el=$("#f-err"); el.textContent=t; el.hidden=false; };
+    if(!(monto>0)) return err("Escribe un monto mayor que cero, por ejemplo 25 o 1.250,50.");
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return err("Elige una fecha.");
+    const rec = {id:m?m.id:uid(), t:m?m.t:Date.now(), cat, tipo, moneda:$("#f-moneda").value, monto, fecha, nota:$("#f-nota").value.trim()};
+    if(m) state.movs = state.movs.map(x=>x.id===m.id?rec:x); else state.movs.push(rec);
+    selMonth = ym(fecha); save(); closeSheet(); render(); toast(m?"Cambios guardados":"Movimiento agregado");
+  });
+  if(matchMedia("(min-width:700px)").matches) setTimeout(()=>$("#f-monto").focus(),50);
+}
+
+function openBackup(){
+  sheet(`<div class="sheet">${head("Respaldo")}
+    <span class="small muted">Copia este texto y guárdalo en tus notas o en un chat contigo mismo. Para pasar tus datos a otro equipo, pégalo allá en Respaldo y toca Restaurar.</span>
+    <textarea id="bk" spellcheck="false" aria-label="Texto del respaldo">${esc(JSON.stringify({movs:state.movs}))}</textarea>
+    <div class="err" id="bk-err" hidden></div>
+    <div class="row2"><button class="ghost" type="button" id="bk-copy">Copiar</button><button class="primary" type="button" id="bk-load">Restaurar</button></div>
+    ${state.movs.some(m=>m.demo)?`<button class="ghost" type="button" id="bk-demo">Borrar datos de ejemplo</button>`:""}
+  </div>`);
+  const bd=$("#bk-demo"); if(bd) bd.onclick=()=>{ state.movs=state.movs.filter(m=>!m.demo); save(); closeSheet(); render(); toast("Datos de ejemplo borrados"); };
+  $("#bk-copy").onclick = ()=>{ const ta=$("#bk"); (navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast("Respaldo copiado")).catch(()=>{ ta.select(); toast("Texto seleccionado; cópialo"); }); };
+  $("#bk-load").onclick = ()=>{
+    try{ const d=JSON.parse($("#bk").value); if(!Array.isArray(d.movs)) throw 0;
+      state.movs=d.movs.filter(m=>m&&CATS[m.cat]&&CUR[m.moneda]&&m.monto>0&&m.fecha); save(); closeSheet(); render(); toast("Respaldo restaurado"); }
+    catch(e){ const el=$("#bk-err"); el.textContent="Ese texto no es un respaldo válido. Pega el texto completo que copiaste."; el.hidden=false; }
+  };
+}
+
+function openGuide(){
+  sheet(`<div class="sheet guide">${head("Guía rápida")}
+    <ol>
+      <li><b>Primer día: anota lo que ya tienes.</b> Toca + Agregar y crea un movimiento por cada lugar: uno para Efectivo, otro para Binance y otro para Banco, con el saldo que tienes hoy. Quedan con la fecha de hoy y ese mes pasa a ser tu punto de partida.</li>
+      <li><b>Cada vez que ahorres, agrega solo lo nuevo.</b> Si guardas $50 más, anotas +$50, no el total. La app suma todo y el total sube solo. Ese ahorro aparece en el mes de su fecha.</li>
+      <li><b>Control por día:</b> dentro de cada mes los movimientos salen agrupados por fecha, con lo que entró o salió ese día. En el Excel también hay una hoja «Resumen por día».</li>
+      <li><b>Cuando saques dinero,</b> elige «Sale (retiro)». Se resta del bolsillo y del total.</li>
+      <li><b>¿Algo de un mes pasado?</b> Cambia la fecha en el formulario y queda en ese mes.</li>
+      <li><b>Pasar de un lugar a otro</b> (por ejemplo, de Banco a Binance): anota un retiro en Banco y un ahorro en Binance.</li>
+      <li><b>Bs a BCV o Bs a Binance</b> cambia con qué tasa se pasan a dólares tus bolívares. Los dólares y los USDT no cambian.</li>
+      <li><b>Excel</b> descarga todos tus movimientos, el resumen por mes, el resumen por día y las tasas.</li>
+      <li><b>Respaldo:</b> copia el texto de vez en cuando. Si cambias de teléfono, lo pegas y recuperas todo.</li>
+      <li><b>Instalarla en el teléfono:</b> en Android, abre la página en Chrome, toca ⋮ y luego «Instalar app» o «Agregar a pantalla principal». En iPhone, ábrela en Safari, toca Compartir y luego «Agregar a inicio».</li>
+    </ol>
+    <p class="small muted">Las tasas vienen del BCV (dólar y euro oficial) y del promedio de compra y venta de USDT en Binance P2P. Se actualizan solas cada 10 minutos cuando la app está abierta.</p>
+  </div>`);
+}
+
+/* ---------- Excel ---------- */
+let xlsxP=null;
+function loadXLSX(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  if(!xlsxP) xlsxP=new Promise((res,rej)=>{ const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.onload=()=>res(window.XLSX); s.onerror=()=>{ xlsxP=null; rej(new Error("load")); }; document.head.appendChild(s); });
+  return xlsxP;
+}
+async function exportExcel(){
+  if(!state.movs.length){ toast("Agrega al menos un movimiento para exportar"); return; }
+  toast("Preparando Excel…");
+  let X; try{ X=await loadXLSX(); }catch(e){ toast("No se pudo preparar el Excel. Revisa tu conexión e intenta de nuevo."); return; }
+  const r2 = n => Math.round(n*100)/100;
+  const movs=[...state.movs].sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(m=>({
+    "Fecha": m.fecha, "Mes": monthLong(ym(m.fecha)), "Dónde": CATS[m.cat].name, "Tipo": m.tipo==="retiro"?"Retiro":"Ahorro",
+    "Moneda": m.moneda==="VES"?"Bs":m.moneda, "Monto": r2(signed(m)), "Equivalente en $ (tasa de hoy)": r2(toUSD(m)), "Nota": m.nota||""
+  }));
+  const res=monthlyClose().map(c=>({ "Mes": monthLong(c.k), "Ahorro neto del mes $": r2(c.net),
+    "Efectivo $": r2(c.v.efectivo), "Binance $": r2(c.v.binance), "Banco $": r2(c.v.banco), "Total al cierre $": r2(c.v.efectivo+c.v.binance+c.v.banco) }));
+  const dias={}; state.movs.forEach(m=>{ const k=m.fecha; dias[k]=dias[k]||{efectivo:0,binance:0,banco:0}; dias[k][m.cat]+=toUSD(m); });
+  let acc=0; const dia=Object.keys(dias).sort().map(k=>{ const v=dias[k], n=v.efectivo+v.binance+v.banco; acc+=n;
+    return {"Fecha":k,"Día":cap(new Date(k+"T12:00").toLocaleDateString("es-VE",{weekday:"long"})),"Efectivo $":r2(v.efectivo),"Binance $":r2(v.binance),"Banco $":r2(v.banco),"Neto del día $":r2(n),"Total acumulado $":r2(acc)}; });
+  const T=state.tasas;
+  const tas=[{"Tasa":"Dólar BCV (Bs por $)","Valor":T.usd},{"Tasa":"Euro BCV (Bs por €)","Valor":T.eur},{"Tasa":"USDT Binance P2P (Bs por USDT)","Valor":T.usdt},
+    {"Tasa":"Bolívares convertidos con","Valor":state.base==="usdt"?"Binance":"BCV"},{"Tasa":"Fecha de las tasas","Valor":new Date(T.fecha).toLocaleString("es-VE")}];
+  const wb=X.utils.book_new();
+  const add=(rows,name,widths)=>{ const ws=X.utils.json_to_sheet(rows); ws["!cols"]=widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb,ws,name); };
+  add(movs,"Movimientos",[12,18,10,9,8,14,16,28]);
+  add(res,"Resumen por mes",[18,18,12,12,12,16]);
+  add(dia,"Resumen por día",[12,12,12,12,12,14,16]);
+  add(tas,"Tasas",[32,22]);
+  const buf=X.write(wb,{bookType:"xlsx",type:"array"});
+  const name="mis-ahorros-"+today()+".xlsx";
+  const blob=new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  if(IN_CLAUDE){
+    try{ const dl=await claude.use("downloads"); if(!dl) throw {code:"unavailable"}; await dl.save({filename:name,data:blob}); toast("Excel guardado"); }
+    catch(e){ toast(e&&e.code==="declined" ? "Descarga cancelada" : "Aquí no se puede descargar. Abre la app desde su página propia."); }
+    return;
+  }
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000); toast("Excel descargado");
+}
+
+function loadDemo(){
+  const d=new Date(), k=(o,day)=>{ const x=new Date(d.getFullYear(), d.getMonth()-o, Math.min(day, o===0?d.getDate():28)); return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0"); };
+  const rows=[[3,5,"efectivo","ahorro","USD",120,"Quincena"],[3,18,"binance","ahorro","USDT",80,"Compra P2P"],[3,20,"banco","ahorro","VES",15000,"Pago móvil"],
+    [2,4,"efectivo","ahorro","USD",100,"Quincena"],[2,22,"binance","ahorro","USDT",150,""],[2,27,"efectivo","retiro","USD",40,"Mercado"],
+    [1,6,"banco","ahorro","VES",22000,"Sueldo"],[1,15,"binance","ahorro","USDT",100,""],[1,28,"efectivo","ahorro","USD",60,""],
+    [0,1,"efectivo","ahorro","USD",80,"Quincena"],[0,1,"binance","retiro","USDT",30,"Pago"]];
+  state.movs = rows.map(r=>({id:uid(),t:Date.now(),fecha:k(r[0],r[1]),cat:r[2],tipo:r[3],moneda:r[4],monto:r[5],nota:r[6],demo:true}));
+  save(); render(); toast("Datos de ejemplo cargados. Puedes borrarlos en Respaldo.");
+}
+function toast(t){ $("#toastHost").innerHTML=`<div class="toast" role="status">${esc(t)}</div>`; clearTimeout(toast.t); toast.t=setTimeout(()=>$("#toastHost").innerHTML="",2600); }
+
+/* ---------- eventos ---------- */
+let installEvt=null;
+window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); installEvt=e; $("#install").hidden=false; });
+document.addEventListener("click",e=>{
+  const el=e.target.closest("button,[data-m]"); if(!el) return;
+  const id=el.id, d=el.dataset;
+  if(id==="add"||id==="add2") openForm();
+  else if(id==="demo") loadDemo();
+  else if(id==="backup") openBackup();
+  else if(id==="guide") openGuide();
+  else if(id==="excel") exportExcel();
+  else if(id==="install"&&installEvt){ installEvt.prompt(); installEvt.userChoice.finally(()=>{ installEvt=null; $("#install").hidden=true; }); }
+  else if(id==="refresh") fetchRates(true);
+  else if(id==="editRates"){
+    if(editingRates){
+      const v={}; let ok=true;
+      ["usd","eur","usdt"].forEach(k=>{ const n=parseNum($("#rate-"+k).value); if(n>0) v[k]=n; else ok=false; });
+      if(!ok){ setRStatus("Escribe las tres tasas, por ejemplo 911,62","warn"); return; }
+      Object.assign(state.tasas, v, {fecha:new Date().toISOString(), origen:"manual"});
+      editingRates=false; save(); render(); setRStatus("Escritas a mano · "+hora(state.tasas.fecha),"ok");
+    } else { editingRates=true; renderRates(); const i=$("#rate-usd"); if(i) i.focus(); }
+  }
+  else if(d.base){ state.base=d.base; save(); render(); }
+  else if(d.m){ selMonth=d.m; pendingDelete=null; renderChart(); renderMonth(); }
+  else if(d.edit){ const m=state.movs.find(x=>x.id===d.edit); if(m) openForm(m); }
+  else if(d.ask){ pendingDelete=d.ask; renderMonth(); }
+  else if(el.hasAttribute("data-cancel")){ pendingDelete=null; renderMonth(); }
+  else if(d.del){ state.movs=state.movs.filter(x=>x.id!==d.del); pendingDelete=null; save(); render(); toast("Movimiento borrado"); }
+});
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeSheet(); });
+window.addEventListener("resize",()=>{ clearTimeout(window.__rz); window.__rz=setTimeout(renderChart,150); });
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden && Date.now()-new Date(state.tasas.fecha).getTime()>10*60e3) fetchRates(); });
+setInterval(()=>{ if(!document.hidden) fetchRates(); }, 10*60e3);
+
+loadLocal();
+render();
+setRStatus("Tasas del "+fechaCorta(state.tasas.fecha),"");
+fetchRates();
+connectCloud();
+})();
+</script>
+<script>if("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});</script>
+</body>
+</html>
