@@ -123,7 +123,8 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
   .mstats{grid-template-columns:1fr;gap:4px}
   .mstat{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 }
-.day span:last-child{text-align:right}
+.day{flex-wrap:wrap}
+.day span:last-child{text-align:right;margin-left:auto}
 .list{display:flex;flex-direction:column}
 .mov{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px 0;border-top:1px solid var(--line)}
 .mov:first-child{border-top:0}
@@ -152,6 +153,9 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .goal-top{display:flex;justify-content:space-between;gap:8px;font-weight:600;font-size:14px}
 .gbar{height:6px;border-radius:999px;background:var(--chip);overflow:hidden}
 .gbar span{display:block;height:100%;background:var(--ink);border-radius:999px}
+.bsbox{border-top:1px solid var(--line);margin-top:10px;padding-top:12px;display:flex;flex-direction:column;gap:4px}
+.bsbox .row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.bsval{font-family:var(--display);font-weight:800;font-size:clamp(24px,7vw,32px);line-height:1.1;letter-spacing:-.01em}
 .addgoal{align-self:flex-start;margin-top:6px}
 .mvrow{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:12px;background:var(--bg)}
 .mvrow .cats button{background:var(--surface)}
@@ -210,16 +214,11 @@ textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:
     </section>
 
     <section class="card hero" aria-label="Total ahorrado">
-      <div class="row">
-        <span class="eyebrow">Total ahorrado</span>
-        <span class="seg" role="group" aria-label="Convertir bolívares con">
-          <button type="button" data-base="bcv">Bs a BCV</button>
-          <button type="button" data-base="usdt">Bs a Binance</button>
-        </span>
-      </div>
+      <span class="eyebrow">Total en dólares</span>
       <div class="big num" id="total">$0,00</div>
       <div class="subs num" id="totalSub"></div>
       <div class="bar" id="mix" aria-hidden="true"></div>
+      <div id="bsBox"></div>
       <div id="goal"></div>
     </section>
 
@@ -238,7 +237,7 @@ textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:
   <div class="col right">
     <section class="card panel" aria-label="Por mes">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
-        <h2>Por mes</h2><span class="small muted">Saldo al cierre de cada mes, en $</span>
+        <h2>Por mes</h2><span class="small muted">Saldo en $ al cierre de cada mes (sin Bs)</span>
       </div>
       <svg class="chart" id="chart" role="img" aria-label="Saldo total al cierre de cada mes"></svg>
       <div class="months" id="months"></div>
@@ -387,6 +386,11 @@ function legs(m){
 }
 const signed = m => m.monto*(m.tipo==="ahorro"?1:-1);
 const toUSD = m => legs(m).reduce((s,l)=>s+amtUSD(l.amt,l.cur),0);
+/* Dólares reales: los Bs NO se suman a los totales en $; se muestran aparte */
+const usdLeg = l => l.cur==="VES" ? 0 : amtUSD(l.amt,l.cur);
+const dUSD = m => legs(m).reduce((s,l)=>s+usdLeg(l),0);
+const dBS = m => legs(m).reduce((s,l)=>s+(l.cur==="VES"?l.amt:0),0);
+const sumMoney = (usd,bs) => [Math.abs(usd)>=0.005||!bs?`${usd<0?"":"+"}${money(usd,"USD")}`:"", Math.abs(bs)>=0.005?`${bs<0?"":"+"}${money(bs,"VES")}`:""].filter(Boolean).join(" · ");
 /* Valor en $ el día del movimiento (con la tasa guardada ese día) */
 const thenUSD = m => m.tasa ? legs(m).reduce((s,l)=>s+amtUSD(l.amt,l.cur,m.tasa),0) : toUSD(m);
 const hasFx = m => !!m.tasa && legs(m).some(l=>l.cur==="VES"||l.cur==="EUR");
@@ -400,34 +404,43 @@ function months(){ const set = new Set(state.movs.map(m=>ym(m.fecha))); set.add(
 function monthlyClose(){
   const run={efectivo:0,binance:0,banco:0}, out=[];
   const sorted=[...state.movs].sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  months().forEach(k=>{ let net=0; sorted.forEach(m=>{ if(ym(m.fecha)===k){ legs(m).forEach(l=>run[l.cat]+=amtUSD(l.amt,l.cur)); if(!isMove(m)) net+=toUSD(m); } }); out.push({k, v:{...run}, net}); });
+  let bs=0;
+  months().forEach(k=>{ let net=0, netBs=0; sorted.forEach(m=>{ if(ym(m.fecha)===k){ legs(m).forEach(l=>{ run[l.cat]+=usdLeg(l); if(l.cur==="VES") bs+=l.amt; }); if(!isMove(m)){ net+=dUSD(m); netBs+=dBS(m); } } }); out.push({k, v:{...run}, net, netBs, bs}); });
   return out;
 }
 
 /* ---------- render ---------- */
 function render(){
   renderRates();
-  document.querySelectorAll("[data-base]").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.base===state.base)));
   const byCat = {efectivo:0,binance:0,banco:0}, nat = {efectivo:{},binance:{},banco:{}};
-  state.movs.forEach(m=>legs(m).forEach(l=>{ byCat[l.cat]+=amtUSD(l.amt,l.cur); nat[l.cat][l.cur]=(nat[l.cat][l.cur]||0)+l.amt; }));
+  state.movs.forEach(m=>legs(m).forEach(l=>{ byCat[l.cat]+=usdLeg(l); nat[l.cat][l.cur]=(nat[l.cat][l.cur]||0)+l.amt; }));
   const fx=fxEffect();
   const total = byCat.efectivo+byCat.binance+byCat.banco, T=state.tasas;
   $("#total").textContent = money(total,"USD");
   const bsTot = Object.values(nat).reduce((t,o)=>t+(o.VES||0),0);
   const hasBs = Object.values(nat).some(o=>"VES" in o);
   $("#totalSub").innerHTML = [
-    hasBs ? `<span style="flex-basis:100%;color:var(--ink)">En bolívares: <b>Bs ${fmt(bsTot)}</b> ≈ ${money(amtUSD(bsTot,"VES"),"USD")}</span>` : "",
-    T.usd ? `<span>Todo equivale a Bs ${fmt(total*T.usd)} (BCV)</span>` : "",
     T.eur ? `<span>≈ €${fmt(total*T.usd/T.eur)}</span>` : "",
-    T.usd&&T.usdt ? `<span>Brecha BCV y Binance: ${fmt((T.usdt/T.usd-1)*100,1)}%</span>` : "",
-    fx!==null && Math.abs(fx)>=0.01 ? `<span>Tus Bs y € ${fx<0?"perdieron":"ganaron"} <b class="${fx<0?"neg":"pos"}">${money(Math.abs(fx),"USD")}</b> por la tasa</span>` : ""
+    T.usd&&T.usdt ? `<span>Brecha BCV y Binance: ${fmt((T.usdt/T.usd-1)*100,1)}%</span>` : ""
   ].join("");
+  $("#bsBox").innerHTML = !hasBs ? "" : `<div class="bsbox">
+    <div class="row"><span class="eyebrow">Total en bolívares</span>
+      <span class="seg" role="group" aria-label="Calcular el aproximado en dólares con">
+        <button type="button" data-base="bcv" aria-pressed="${state.base!=="usdt"}">BCV</button>
+        <button type="button" data-base="usdt" aria-pressed="${state.base==="usdt"}">Binance</button></span></div>
+    <div class="bsval num">${money(bsTot,"VES")}</div>
+    <span class="small muted num">≈ ${money(amtUSD(bsTot,"VES"),"USD")} a tasa ${state.base==="usdt"?"Binance":"BCV"} · solo de referencia, no se suma a tus dólares</span>
+    ${fx!==null && Math.abs(fx)>=0.01 ? `<span class="small muted">Desde que los anotaste, tus Bs ${fx<0?"perdieron":"ganaron"} <b class="${fx<0?"neg":"pos"}">${money(Math.abs(fx),"USD")}</b> de valor por la tasa</span>` : ""}
+  </div>`;
   renderGoal(total);
   const pos = Math.max(total,0.0001);
   $("#mix").innerHTML = Object.keys(CATS).map(k=> byCat[k]>0 ? `<span style="width:${byCat[k]/pos*100}%;background:${CATS[k].c}"></span>` : "").join("");
   $("#pockets").innerHTML = Object.entries(CATS).map(([k,c])=>{
-    const n = Object.entries(nat[k]).filter(([,v])=>Math.abs(v)>0.004).map(([cur,v])=>money(v,cur)).join(" · ") || "Sin movimientos";
-    return `<div class="card pocket" style="--c:${c.c}"><span class="name"><i></i>${c.name}</span><span class="usd num">${money(byCat[k],"USD")}</span><span class="nat num">${n}</span><span class="pct num">${total>0?fmt(byCat[k]/total*100,0)+"%":"—"}</span></div>`;
+    const ents = Object.entries(nat[k]).filter(([,v])=>Math.abs(v)>0.004);
+    const onlyBs = ents.length && ents.every(([cur])=>cur==="VES");
+    const n = ents.map(([cur,v])=>money(v,cur)).join(" · ") || "Sin movimientos";
+    const big = onlyBs ? money(nat[k].VES,"VES") : money(byCat[k],"USD");
+    return `<div class="card pocket" style="--c:${c.c}"><span class="name"><i></i>${c.name}</span><span class="usd num">${big}</span><span class="nat num">${n}</span><span class="pct num">${total>0&&!onlyBs?fmt(byCat[k]/total*100,0)+"% de tus $":"—"}</span></div>`;
   }).join("");
   renderChart(); renderMonth();
 }
@@ -488,21 +501,22 @@ function renderMonth(){
   const ms = months().reverse();
   $("#months").innerHTML = ms.map(k=>`<button type="button" data-m="${k}" aria-pressed="${k===selMonth}">${monthLong(k)}</button>`).join("");
   const list = state.movs.filter(m=>ym(m.fecha)===selMonth).sort((a,b)=>b.fecha.localeCompare(a.fecha)||(b.t||0)-(a.t||0));
-  let ah=0, re=0; list.forEach(m=>{ if(isMove(m)) return; const u=Math.abs(toUSD(m)); if(m.tipo==="retiro") re+=u; else ah+=u; });
+  let ah=0, re=0, nbs=0; list.forEach(m=>{ if(isMove(m)) return; nbs+=dBS(m); const u=Math.abs(dUSD(m)); if(m.tipo==="retiro") re+=u; else ah+=u; });
   $("#mstats").innerHTML = `<div class="mstat"><div class="k">Ahorré</div><div class="v num pos">${money(ah,"USD")}</div></div>
     <div class="mstat"><div class="k">Retiré</div><div class="v num neg">${money(re,"USD")}</div></div>
-    <div class="mstat"><div class="k">Neto</div><div class="v num ${ah-re<0?"neg":""}">${money(ah-re,"USD")}</div></div>`;
+    <div class="mstat"><div class="k">Neto</div><div class="v num ${ah-re<0?"neg":""}">${money(ah-re,"USD")}</div></div>
+    ${Math.abs(nbs)>=0.005?`<div class="mstat" style="grid-column:1/-1"><div class="k">Bolívares del mes</div><div class="v num ${nbs<0?"neg":"pos"}">${nbs<0?"":"+"}${money(nbs,"VES")}</div></div>`:""}`;
   if(!state.movs.length){
     $("#list").innerHTML = `<div class="empty"><b style="color:var(--ink)">Aún no hay movimientos</b><span>Toca <b>+ Agregar</b> y anota lo que tienes hoy en efectivo, Binance y banco.</span><button class="ghost" type="button" id="demo">Ver con datos de ejemplo</button></div>`;
     return;
   }
   if(!list.length){ $("#list").innerHTML = `<div class="empty">Sin movimientos en ${monthLong(selMonth)}.</div>`; return; }
-  const dayNet={}; list.forEach(m=>dayNet[m.fecha]=(dayNet[m.fecha]||0)+(isMove(m)?0:toUSD(m)));
+  const dayNet={}, dayBs={}; list.forEach(m=>{ if(isMove(m)) return; dayNet[m.fecha]=(dayNet[m.fecha]||0)+dUSD(m); dayBs[m.fecha]=(dayBs[m.fecha]||0)+dBS(m); });
   let lastDay="";
   $("#list").innerHTML = list.map(m=>{
     let hdr="";
-    if(m.fecha!==lastDay){ lastDay=m.fecha; const n=dayNet[m.fecha];
-      hdr=`<div class="day"><span>${cap(new Date(m.fecha+"T12:00").toLocaleDateString("es-VE",{weekday:"long",day:"numeric",month:"long"}))}</span><span class="num ${n<0?"neg":"pos"}">${n<0?"":"+"}${money(n,"USD")}</span></div>`; }
+    if(m.fecha!==lastDay){ lastDay=m.fecha; const n=dayNet[m.fecha]||0, nb=dayBs[m.fecha]||0;
+      hdr=`<div class="day"><span>${cap(new Date(m.fecha+"T12:00").toLocaleDateString("es-VE",{weekday:"long",day:"numeric",month:"long"}))}</span><span class="num ${n<0||(!n&&nb<0)?"neg":"pos"}">${n||nb?sumMoney(n,nb):""}</span></div>`; }
     const c=CATS[m.cat]; const del = pendingDelete===m.id, mv=isMove(m);
     const route = mv ? `${c.name} → ${CATS[m.to].name}` : c.name;
     let val="";
@@ -625,7 +639,7 @@ function openGuide(){
       <li><b>Pasar dinero de un lugar a otro</b> (por ejemplo, de Banco a Binance): elige «Mover», indica desde dónde, hacia dónde y cuánto llegó. No cuenta como ahorro ni como retiro.</li>
       <li><b>Meta:</b> toca «Poner una meta de ahorro» debajo del total. Si le pones fecha, te dice cuánto ahorrar por mes.</li>
       <li><b>Tasa de cada movimiento:</b> lo que anotas en Bs o € con fecha de hoy guarda la tasa del día. Así ves cuánto valía ese día y cuánto vale hoy, y debajo del total, cuánto han perdido o ganado tus Bs y € por la tasa.</li>
-      <li><b>Bs a BCV o Bs a Binance</b> cambia con qué tasa se pasan a dólares tus bolívares. Los dólares y los USDT no cambian.</li>
+      <li><b>Bolívares aparte:</b> el total en dólares solo suma tus $, USDT y €. Los Bs se muestran en «Total en bolívares», con un aproximado en $ que es solo de referencia. Ahí eliges si ese aproximado usa la tasa BCV o la de Binance.</li>
       <li><b>Excel:</b> «Descargar Excel» te da tus movimientos, el resumen por mes, el resumen por día y las tasas. Si editas la hoja «Movimientos» (corriges, agregas o borras filas), puedes subirla en «Subir un Excel editado» y la app se actualiza con lo que tenga el archivo.</li>
       <li><b>Respaldo:</b> copia el texto de vez en cuando. Si cambias de teléfono, lo pegas y recuperas todo.</li>
       <li><b>Instalarla en el teléfono:</b> en Android, abre la página en Chrome, toca ⋮ y luego «Instalar app» o «Agregar a pantalla principal». En iPhone, ábrela en Safari, toca Compartir y luego «Agregar a inicio».</li>
@@ -712,22 +726,22 @@ async function exportExcel(){
     "Tipo": isMove(m)?"Mover":m.tipo==="retiro"?"Retiro":"Ahorro",
     "Moneda": cn(m.moneda), "Monto": r2(signed(m)), "Llega": isMove(m)?r2(m.monto2):"", "Moneda que llega": isMove(m)?cn(m.moneda2):"",
     "Tasa $ BCV ese día": m.tasa?m.tasa.usd:"", "Tasa € BCV ese día": m.tasa?m.tasa.eur:"", "Tasa Binance ese día": m.tasa?m.tasa.usdt:"",
-    "En $ ese día": hasFx(m)?r2(thenUSD(m)):"", "En $ hoy": r2(toUSD(m)), "Nota": m.nota||""
+    "En $ ese día": hasFx(m)?r2(thenUSD(m)):"", "Aprox. en $ hoy": r2(toUSD(m)), "Nota": m.nota||""
   }));
-  const res=monthlyClose().map(c=>({ "Mes": monthLong(c.k), "Ahorro neto del mes $": r2(c.net),
-    "Efectivo $": r2(c.v.efectivo), "Binance $": r2(c.v.binance), "Banco $": r2(c.v.banco), "Total al cierre $": r2(c.v.efectivo+c.v.binance+c.v.banco) }));
-  const dias={}; state.movs.forEach(m=>{ const k=m.fecha; dias[k]=dias[k]||{efectivo:0,binance:0,banco:0}; legs(m).forEach(l=>dias[k][l.cat]+=amtUSD(l.amt,l.cur)); });
-  let acc=0; const dia=Object.keys(dias).sort().map(k=>{ const v=dias[k], n=v.efectivo+v.binance+v.banco; acc+=n;
-    return {"Fecha":k,"Día":cap(new Date(k+"T12:00").toLocaleDateString("es-VE",{weekday:"long"})),"Efectivo $":r2(v.efectivo),"Binance $":r2(v.binance),"Banco $":r2(v.banco),"Neto del día $":r2(n),"Total acumulado $":r2(acc)}; });
+  const res=monthlyClose().map(c=>({ "Mes": monthLong(c.k), "Ahorro neto del mes $": r2(c.net), "Bolívares del mes (Bs)": r2(c.netBs),
+    "Efectivo $": r2(c.v.efectivo), "Binance $": r2(c.v.binance), "Banco $": r2(c.v.banco), "Total en $ al cierre": r2(c.v.efectivo+c.v.binance+c.v.banco), "Total en Bs al cierre": r2(c.bs) }));
+  const dias={}; state.movs.forEach(m=>{ const k=m.fecha; dias[k]=dias[k]||{efectivo:0,binance:0,banco:0,bs:0}; legs(m).forEach(l=>{ dias[k][l.cat]+=usdLeg(l); if(l.cur==="VES") dias[k].bs+=l.amt; }); });
+  let acc=0, accBs=0; const dia=Object.keys(dias).sort().map(k=>{ const v=dias[k], n=v.efectivo+v.binance+v.banco; acc+=n; accBs+=v.bs;
+    return {"Fecha":k,"Día":cap(new Date(k+"T12:00").toLocaleDateString("es-VE",{weekday:"long"})),"Efectivo $":r2(v.efectivo),"Binance $":r2(v.binance),"Banco $":r2(v.banco),"Neto del día $":r2(n),"Total acumulado $":r2(acc),"Bs del día":r2(v.bs),"Total acumulado Bs":r2(accBs)}; });
   const T=state.tasas;
   const tas=[{"Tasa":"Dólar BCV (Bs por $)","Valor":T.usd},{"Tasa":"Euro BCV (Bs por €)","Valor":T.eur},{"Tasa":"USDT Binance P2P (Bs por USDT)","Valor":T.usdt},
-    {"Tasa":"Bolívares convertidos con","Valor":state.base==="usdt"?"Binance":"BCV"},{"Tasa":"Fecha de las tasas","Valor":new Date(T.fecha).toLocaleString("es-VE")}];
+    {"Tasa":"Aproximado de Bs en $ calculado con","Valor":state.base==="usdt"?"Binance":"BCV"},{"Tasa":"Fecha de las tasas","Valor":new Date(T.fecha).toLocaleString("es-VE")}];
   if(state.meta&&state.meta.monto) tas.push({"Tasa":"Meta de ahorro ($)","Valor":state.meta.monto},{"Tasa":"Fecha de la meta","Valor":state.meta.fecha||"Sin fecha"});
   const wb=X.utils.book_new();
   const add=(rows,name,widths)=>{ const ws=X.utils.json_to_sheet(rows); ws["!cols"]=widths.map(w=>({wch:w})); X.utils.book_append_sheet(wb,ws,name); };
   add(movs,"Movimientos",[12,18,18,9,8,14,12,10,12,12,12,12,12,28]);
-  add(res,"Resumen por mes",[18,18,12,12,12,16]);
-  add(dia,"Resumen por día",[12,12,12,12,12,14,16]);
+  add(res,"Resumen por mes",[18,18,18,12,12,12,16,18]);
+  add(dia,"Resumen por día",[12,12,12,12,12,14,16,14,18]);
   add(tas,"Tasas",[32,22]);
   const buf=X.write(wb,{bookType:"xlsx",type:"array"});
   const name="mis-ahorros-"+today()+".xlsx";
