@@ -413,8 +413,11 @@ function render(){
   const fx=fxEffect();
   const total = byCat.efectivo+byCat.binance+byCat.banco, T=state.tasas;
   $("#total").textContent = money(total,"USD");
+  const bsTot = Object.values(nat).reduce((t,o)=>t+(o.VES||0),0);
+  const hasBs = Object.values(nat).some(o=>"VES" in o);
   $("#totalSub").innerHTML = [
-    T.usd ? `<span>≈ Bs ${fmt(total*T.usd)} a BCV</span>` : "",
+    hasBs ? `<span style="flex-basis:100%;color:var(--ink)">En bolívares: <b>Bs ${fmt(bsTot)}</b> ≈ ${money(amtUSD(bsTot,"VES"),"USD")}</span>` : "",
+    T.usd ? `<span>Todo equivale a Bs ${fmt(total*T.usd)} (BCV)</span>` : "",
     T.eur ? `<span>≈ €${fmt(total*T.usd/T.eur)}</span>` : "",
     T.usd&&T.usdt ? `<span>Brecha BCV y Binance: ${fmt((T.usdt/T.usd-1)*100,1)}%</span>` : "",
     fx!==null && Math.abs(fx)>=0.01 ? `<span>Tus Bs y € ${fx<0?"perdieron":"ganaron"} <b class="${fx<0?"neg":"pos"}">${money(Math.abs(fx),"USD")}</b> por la tasa</span>` : ""
